@@ -46,6 +46,7 @@ parser.add_argument('--repeat_num',default=1,type=int,help='repeat num of maximu
 parser.add_argument('--improved',action="store_true",help='if true, target classifier is obtained through improved process')
 parser.add_argument('--fixed_budget',default=0,type=int,help='if > 0, then run the attack for fixed number of points')
 parser.add_argument('--require_acc',action="store_true",help='if true, terminate the algorithm when the acc requirement is achieved')
+parser.add_argument('--subpop_type', default='cluster', choices=['cluster', 'feature'], help='subpopulaton type: cluster or feature')
 
 args = parser.parse_args()
 
@@ -79,7 +80,7 @@ elif dataset_name == 'adult':
 elif dataset_name == '2d_toy':
     args.poison_whole = True
     if args.poison_whole:
-        valid_theta_errs = [0.1,0.15] 
+        valid_theta_errs = [0.1,0.15]
     else:
         valid_theta_errs = [1.0]
 elif dataset_name == 'dogfish':
@@ -90,9 +91,9 @@ elif dataset_name == 'dogfish':
 
     args.poison_whole = True
     args.weight_decay = 1.1
-    
+
     if args.poison_whole:
-        valid_theta_errs = [0.1,0.2,0.3] 
+        valid_theta_errs = [0.1,0.2,0.3]
     else:
         valid_theta_errs = [0.9]
 
@@ -106,6 +107,9 @@ else:
     model_grad = logistic_grad
 
 learning_rate = 0.01
+
+dataset_name = args.dataset
+subpop_type = args.subpop_type
 ######################################################################
 
 ################# Main body of work ###################
@@ -163,22 +167,24 @@ percentile=percentile)
 # do clustering and test if these fit previous clusters
 # do clustering and test if these fit previous clusters
 if args.poison_whole:
-    cl_inds, cl_cts = [0], [0]
+    subpop_inds, subpop_cts = [0], [0]
 else:
-    cls_fname = 'files/data/{}_trn_cluster_labels.txt'.format(args.dataset)
-    if os.path.isfile(cls_fname):
-        trn_km = np.loadtxt(cls_fname)
-        cls_fname = 'files/data/{}_tst_cluster_labels.txt'.format(args.dataset)
-        tst_km = np.loadtxt(cls_fname)
-    else:
+    trn_subpop_fname = 'files/data/{}_trn_{}_labels.txt'.format(dataset_name, subpop_type)
+    if not os.path.isfile(trn_subpop_fname):
         print("please first generate the target classifier and obtain subpop info!")
-        sys.exit(1) 
+        sys.exit(1)
+
+    with open(trn_subpop_fname, 'r') as f:
+        trn_all_subpops = [np.array(map(int, line.split())) for line in f]
+    tst_subpop_fname = 'files/data/{}_tst_{}_labels.txt'.format(dataset_name, subpop_type)
+    with open(tst_subpop_fname, 'r') as f:
+        tst_all_subpops = [np.array(map(int, line.split())) for line in f]
+
     # find the selected clusters and corresponding subpop size
-    # cl_inds, cl_cts = np.unique(trn_km, return_counts=True)
-    cls_fname = 'files/data/{}_{}_selected_subpops.txt'.format(dataset_name, args.model_type)
+    cls_fname = 'files/data/{}_{}_{}_selected_subpops.txt'.format(dataset_name, args.model_type, subpop_type)
     selected_subpops = np.loadtxt(cls_fname)
-    cl_inds = selected_subpops[0]
-    cl_cts = selected_subpops[1]
+    subpop_inds = selected_subpops[0]
+    subpop_cts = selected_subpops[1]
 
 if dataset_name == "adult":
     pois_rates = [0.05]
@@ -241,77 +247,52 @@ bias = model.intercept_[0]
 
 X_train_cp, y_train_cp = np.copy(X_train), np.copy(y_train)
 
-# start the complete process 
+# start the complete process
 for valid_theta_err in valid_theta_errs:
     print("Attack Target Classifiers with Expected Error Rate:",valid_theta_err)
     args.err_threshold = valid_theta_err
     # open the files to write key info
     if args.target_model == "all":
-        kkt_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/kkt_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
-        kkt_lower_bound_writer = csv.writer(kkt_lower_bound_file, delimiter=str(' ')) 
+        kkt_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/{}/kkt_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
+        kkt_lower_bound_writer = csv.writer(kkt_lower_bound_file, delimiter=str(' '))
 
-        real_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/real_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
-        real_lower_bound_writer = csv.writer(real_lower_bound_file, delimiter=str(' ')) 
+        real_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/{}/real_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
+        real_lower_bound_writer = csv.writer(real_lower_bound_file, delimiter=str(' '))
 
-        ol_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/ol_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
-        ol_lower_bound_writer = csv.writer(ol_lower_bound_file, delimiter=str(' ')) 
+        ol_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/{}/ol_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
+        ol_lower_bound_writer = csv.writer(ol_lower_bound_file, delimiter=str(' '))
     elif args.target_model == "kkt":
-        kkt_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/kkt_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
-        kkt_lower_bound_writer = csv.writer(kkt_lower_bound_file, delimiter=str(' ')) 
+        kkt_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/{}/kkt_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
+        kkt_lower_bound_writer = csv.writer(kkt_lower_bound_file, delimiter=str(' '))
     elif args.target_model == "real":
-        real_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/real_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
-        real_lower_bound_writer = csv.writer(real_lower_bound_file, delimiter=str(' ')) 
+        real_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/{}/real_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
+        real_lower_bound_writer = csv.writer(real_lower_bound_file, delimiter=str(' '))
     elif args.target_model == "ol":
-        ol_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/ol_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
-        ol_lower_bound_writer = csv.writer(ol_lower_bound_file, delimiter=str(' ')) 
+        ol_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/{}/ol_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
+        ol_lower_bound_writer = csv.writer(ol_lower_bound_file, delimiter=str(' '))
     elif args.target_model == "compare":
-        compare_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/compare_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
-        compare_lower_bound_writer = csv.writer(compare_lower_bound_file, delimiter=str(' ')) 
+        compare_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/{}/compare_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
+        compare_lower_bound_writer = csv.writer(compare_lower_bound_file, delimiter=str(' '))
 
-    for kk in range(len(cl_inds)):
-        cl_ind = int(cl_inds[kk])
+    for kk in range(len(subpop_inds)):
+        subpop_ind = int(subpop_inds[kk])
         if args.poison_whole:
-            tst_sub_x, tst_sub_y = X_test, y_test 
+            tst_sub_x, tst_sub_y = X_test, y_test
             tst_nsub_x, tst_nsub_y = X_test,y_test
             trn_sub_x, trn_sub_y = X_train, y_train
             trn_nsub_x, trn_nsub_y = X_train, y_train
         else:
-            # tst_sbcl = np.where(np.logical_and(tst_km==cl_ind,y_test == -1))
-            # trn_sbcl = np.where(np.logical_and(trn_km==cl_ind,y_train == -1))
-            # tst_non_sbcl = np.where(np.logical_or(tst_km!=cl_ind,y_test != -1))
-            # trn_non_sbcl = np.where(np.logical_or(trn_km!=cl_ind,y_train != -1))
-            if dataset_name == "adult":
-                tst_sbcl = np.where(np.logical_and(tst_km==cl_ind,y_test == -1))
-                trn_sbcl = np.where(np.logical_and(trn_km==cl_ind,y_train == -1))
-                tst_non_sbcl = np.where(np.logical_or(tst_km!=cl_ind,y_test != -1))
-                trn_non_sbcl = np.where(np.logical_or(trn_km!=cl_ind,y_train != -1))
-            else:
-                # need to first figure out the majority class and then only consider subpopulation with 
-                # consistent major label on train and test data 
-                tst_sbcl = np.where(tst_km==cl_ind)
-                trn_sbcl = np.where(trn_km==cl_ind)
-                Y_train_sel, Y_test_sel =  y_train[trn_sbcl], y_test[tst_sbcl]
-                
-                mode_tst = scipy.stats.mode(Y_test_sel)
-                mode_trn = scipy.stats.mode(Y_train_sel) 
-                print("selected major labels in test and train data:",mode_trn,mode_tst,len(Y_train_sel),len(Y_test_sel))
-                major_lab_trn = mode_trn.mode[0]
-                major_lab_tst = mode_tst.mode[0]
-                # print(major_lab_trn,major_lab_tst)
-
-                assert major_lab_trn ==  major_lab_tst, "inconsistent in labels between test and train subpop"
-                print("selected major label is:",major_lab_trn)
-                tst_sbcl = np.where(np.logical_and(tst_km==cl_ind,y_test == major_lab_tst))
-                trn_sbcl = np.where(np.logical_and(trn_km==cl_ind,y_train == major_lab_trn))
-                tst_non_sbcl = np.where(np.logical_or(tst_km!=cl_ind,y_test != major_lab_tst))
-                trn_non_sbcl = np.where(np.logical_or(trn_km!=cl_ind,y_train != major_lab_trn))  
+            tst_subpop_inds = np.array([np.any(v == subpop_ind) for v in tst_all_subpops])
+            trn_subpop_inds = np.array([np.any(v == subpop_ind) for v in trn_all_subpops])
+            # indices of points belong to subpop
+            tst_sbcl, trn_sbcl, tst_non_sbcl, trn_non_sbcl = get_subpop_inds(dataset_name, tst_subpop_inds, trn_subpop_inds, y_test, y_train)
 
             # get the corresponding points in the dataset
             tst_sub_x, tst_sub_y = X_test[tst_sbcl], y_test[tst_sbcl]
             tst_nsub_x, tst_nsub_y = X_test[tst_non_sbcl], y_test[tst_non_sbcl]
             trn_sub_x, trn_sub_y = X_train_cp[trn_sbcl], y_train_cp[trn_sbcl]
             trn_nsub_x, trn_nsub_y = X_train_cp[trn_non_sbcl], y_train_cp[trn_non_sbcl]
-        
+
             # make sure subpop is from class -1
             # assert (tst_sub_y == -1).all()
             # assert (trn_sub_y == -1).all()
@@ -328,7 +309,7 @@ for valid_theta_err in valid_theta_errs:
         test_target = model.score(tst_sub_x, tst_sub_y)
         test_collat = model.score(tst_nsub_x, tst_nsub_y)
 
-        print("----------Subpop Indx: {}------".format(cl_ind))
+        print("----------Subpop Indx: {}------".format(subpop_ind))
         print('Clean Overall Test Acc : %.3f' % model.score(X_test, y_test))
         print('Clean Test Target Acc : %.3f' % test_target)
         print('Clean Test Collat Acc : %.3f' % test_collat)
@@ -348,16 +329,16 @@ for valid_theta_err in valid_theta_errs:
         # load target classifiers
         if not args.improved:
             if args.poison_whole:
-                fname = open('files/target_classifiers/{}/{}/orig_best_theta_whole_err-{}'.format(dataset_name,args.model_type,valid_theta_err), 'rb')  
-                
+                fname = open('files/target_classifiers/{}/{}/{}/orig_best_theta_whole_err-{}'.format(dataset_name,args.model_type, subpop_type, valid_theta_err), 'rb')
+
             else:
-                fname = open('files/target_classifiers/{}/{}/orig_best_theta_subpop_{}_err-{}'.format(dataset_name,args.model_type,cl_ind,valid_theta_err), 'rb')  
+                fname = open('files/target_classifiers/{}/{}/{}/orig_best_theta_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type, subpop_ind,valid_theta_err), 'rb')
         else:
             if args.poison_whole:
-                fname = open('files/target_classifiers/{}/{}/improved_best_theta_whole_err-{}'.format(dataset_name,args.model_type,valid_theta_err), 'rb')  
-                
+                fname = open('files/target_classifiers/{}/{}/{}/improved_best_theta_whole_err-{}'.format(dataset_name,args.model_type, subpop_type,valid_theta_err), 'rb')
+
             else:
-                fname = open('files/target_classifiers/{}/{}/improved_best_theta_subpop_{}_err-{}'.format(dataset_name,args.model_type,cl_ind,valid_theta_err), 'rb')  
+                fname = open('files/target_classifiers/{}/{}/{}/improved_best_theta_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type,subpop_ind,valid_theta_err), 'rb')
         f = pickle.load(fname)
         best_target_theta = f['thetas']
         best_target_bias = f['biases']
@@ -367,7 +348,7 @@ for valid_theta_err in valid_theta_errs:
         # sys.exit(0)
         sub_frac = 1
 
-        # fname = 'files/target_classifiers/{}/orig_best_poison_subpop_{}_err-{}.npz'.format(dataset_name,args.model_type,int(cl_ind),valid_theta_err)
+        # fname = 'files/target_classifiers/{}/orig_best_poison_subpop_{}_err-{}.npz'.format(dataset_name,args.model_type,int(subpop_ind),valid_theta_err)
         # poisons_all = np.load(fname)
         # X_Poison = poisons_all["X_poison"]
         # Y_Poison = poisons_all["Y_poison"]
@@ -404,9 +385,9 @@ for valid_theta_err in valid_theta_errs:
         target_model_acc_scores.append(1-ideal_total_err)
         target_model_acc_scores.append(1-ideal_target_err)
         target_model_acc_scores.append(1-ideal_collat_err)
-        
+
         # # just to make sure one subpop of 2d toy example will terminate
-        # if 1-ideal_target_err > 1-args.err_threshold: 
+        # if 1-ideal_target_err > 1-args.err_threshold:
         #     print("the target classifier does not satisfy the attack goal, skip the rest!")
         #     continue
         # store the lower bound and actual poisoned points
@@ -415,7 +396,7 @@ for valid_theta_err in valid_theta_errs:
         real_target_lower_bound_and_attacks = []
         compare_target_lower_bound_and_attacks = []
 
-        print("************** Target Classifier for Subpop:{} ***************".format(cl_ind))
+        print("************** Target Classifier for Subpop:{} ***************".format(subpop_ind))
         if not fit_intercept:
             target_bias = 0
 
@@ -445,9 +426,9 @@ for valid_theta_err in valid_theta_errs:
         if args.target_model == "real" or args.target_model == "all":
             print("------- Use Actual Target model as Target Model -----")
             if args.poison_whole:
-                filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
             else:
-                filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
             if not os.path.isfile(filename):
                 # start the evaluation process
                 print("[Sanity Real] Acc of current model:",curr_model.score(X_test,y_test),curr_model.score(X_train,y_train))
@@ -493,19 +474,19 @@ for valid_theta_err in valid_theta_errs:
                     random_state=args.rand_seed,
                     verbose=False,
                     max_iter = 1000)
-                model_p_online.fit(online_full_x, online_full_y) 
+                model_p_online.fit(online_full_x, online_full_y)
 
                 # save the data and model for producing the online models
                 if args.poison_whole:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_real_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_real_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 else:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_real_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_real_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 joblib.dump(model_p_online, filename)
 
                 if args.poison_whole:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 else:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 np.savez(filename,
                         online_poisons_x = online_poisons_x,
                         online_poisons_y = online_poisons_y,
@@ -514,7 +495,7 @@ for valid_theta_err in valid_theta_errs:
                         best_max_loss_x = best_max_loss_x,
                         best_max_loss_y = best_max_loss_y,
                         target_poison_max_losses = target_poison_max_losses,
-                        current_total_losses = current_total_losses, 
+                        current_total_losses = current_total_losses,
                         max_loss_diffs = max_loss_diffs_reg,
                         lower_bounds = lower_bounds,
                         ol_tol_params = ol_tol_params,
@@ -523,9 +504,9 @@ for valid_theta_err in valid_theta_errs:
                         )
             else:
                 if args.poison_whole:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 else:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 data_info = np.load(filename)
                 online_poisons_x = data_info["online_poisons_x"]
                 online_poisons_y = data_info["online_poisons_y"]
@@ -537,22 +518,22 @@ for valid_theta_err in valid_theta_errs:
                 current_total_losses = data_info["current_total_losses"]
                 max_loss_diffs_reg = data_info["max_loss_diffs"]
                 lower_bounds = data_info["lower_bounds"]
-                ol_tol_params = data_info["ol_tol_params"]  
+                ol_tol_params = data_info["ol_tol_params"]
                 ol_tol_par = ol_tol_params[-1]
                 online_acc_scores = data_info["online_acc_scores"]
                 norm_diffs = data_info['norm_diffs']
                 if args.poison_whole:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_real_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_real_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 else:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_real_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_real_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 model_p_online = joblib.load(open(filename, 'rb'))
 
             ###  perform the KKT attack with same number of poisned points of our Adaptive attack ###
             kkt_fraction = 1
             if args.poison_whole:
-                filename = 'files/kkt_models/{}/{}/{}/{}/{}/whole-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/whole-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
             else:
-                filename = 'files/kkt_models/{}/{}/{}/{}/{}/subpop-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/subpop-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
             if not os.path.isfile(filename):
                 target_theta = np.copy(best_target_theta)
                 if fit_intercept:
@@ -580,7 +561,7 @@ for valid_theta_err in valid_theta_errs:
                 print("Ideal Target Train Acc:",1-ideal_target_err)
                 print("Ideal Collat Train Acc:",1-ideal_collat_err)
 
-                # also explore some of the KKT attack results using smaller num of poisons 
+                # also explore some of the KKT attack results using smaller num of poisons
                 kkt_fractions = [0.2,0.4,0.6,0.8,1]
                 kkt_fraction_max_loss_diffs = []
                 kkt_fraction_norm_diffs = []
@@ -616,7 +597,7 @@ for valid_theta_err in valid_theta_errs:
                     total_epsilon = float(kkt_num_points)/X_train.shape[0]
                     print("Explored kkt fraction {}, number of poisons for kkt attack {}, the poison ratio {}".format(kkt_fraction,kkt_num_points,total_epsilon))
                     model_dumb1.coef_ = np.array([target_theta])
-                    model_dumb1.intercept_ = np.array([target_bias]) 
+                    model_dumb1.intercept_ = np.array([target_bias])
 
                     target_grad = clean_grad_at_target_theta + ((1 + total_epsilon) * args.weight_decay * target_theta)
                     if args.model_type == 'svm':
@@ -632,7 +613,7 @@ for valid_theta_err in valid_theta_errs:
                     for epsilon_pos in np.arange(0, total_epsilon + 1e-6, epsilon_increment):
                         epsilon_neg = total_epsilon - epsilon_pos
                         epsilon_pairs.append((epsilon_pos, epsilon_neg))
-                    
+
                     for epsilon_pos, epsilon_neg in epsilon_pairs:
                         print('\n## Trying epsilon_pos %s, epsilon_neg %s' % (epsilon_pos, epsilon_neg))
                         if args.model_type == 'svm':
@@ -652,20 +633,20 @@ for valid_theta_err in valid_theta_errs:
                                 X_train.shape[1],args,
                                 target_grad,target_theta, target_bias,
                                 total_epsilon * sub_frac, epsilon_pos * sub_frac, epsilon_neg * sub_frac,
-                                X_train_cp, y_train_cp, 
+                                X_train_cp, y_train_cp,
                                 x_pos_tuple = x_pos_tuple,x_neg_tuple = x_neg_tuple,
                                 lr=lr,num_steps=num_steps,trials=trials)
-                        
+
                         # separate out the poisoned points
                         idx_poison = slice(X_train.shape[0], X_modified.shape[0])
                         idx_clean = slice(0, X_train.shape[0])
-                        
+
                         X_poison = X_modified[idx_poison,:]
-                        Y_poison = Y_modified[idx_poison]   
+                        Y_poison = Y_modified[idx_poison]
                         # unique points and labels in kkt attack
                         unique_x, unique_indices, unique_counts = np.unique(X_poison,return_index = True,return_counts = True,axis=0)
-                        unique_y = Y_poison[unique_indices]               
-                        # retrain the model 
+                        unique_y = Y_poison[unique_indices]
+                        # retrain the model
                         C = 1.0 / (X_modified.shape[0] * args.weight_decay)
                         model_p = ScikitModel(
                             C=C,
@@ -674,7 +655,7 @@ for valid_theta_err in valid_theta_errs:
                             random_state=args.rand_seed,
                             verbose=False,
                             max_iter = 1000)
-                        model_p.fit(X_modified, Y_modified)                 
+                        model_p.fit(X_modified, Y_modified)
                         # acc on subpop and rest of pops
                         trn_total_acc = model_p.score(X_train, y_train)
                         trn_target_acc = model_p.score(trn_sub_x, trn_sub_y)
@@ -683,7 +664,7 @@ for valid_theta_err in valid_theta_errs:
                         tst_target_acc = model_p.score(tst_sub_x, tst_sub_y)
                         tst_collat_acc = model_p.score(tst_nsub_x, tst_nsub_y)
                         print()
-                        
+
                         print('Test Total Acc : ', tst_total_acc)
                         print('Test Target Acc : ', tst_target_acc)
                         print('Test Collat Acc : ', tst_collat_acc)
@@ -737,14 +718,14 @@ for valid_theta_err in valid_theta_errs:
 
                     # save the model weights and the train and test data
                     if args.poison_whole:
-                        filename = 'files/kkt_models/{}/{}/{}/{}/{}/whole-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                        filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/whole-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
                     else:
-                        filename = 'files/kkt_models/{}/{}/{}/{}/{}/subpop-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                        filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/subpop-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
                     joblib.dump(kkt_model_p, filename)
                     if args.poison_whole:
-                        filename = 'files/kkt_models/{}/{}/{}/{}/{}/whole-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                        filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/whole-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
                     else:
-                        filename = 'files/kkt_models/{}/{}/{}/{}/{}/subpop-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                        filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/subpop-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
                     best_kkt_theta = kkt_model_p.coef_.reshape(-1)
                     best_kkt_bias = kkt_model_p.intercept_
                     best_kkt_bias = best_kkt_bias[0]
@@ -761,9 +742,9 @@ for valid_theta_err in valid_theta_errs:
                             )
                 # store the kkt fraction info
                 if args.poison_whole:
-                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/whole-{}_kkt_frac_info_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/whole-{}_kkt_frac_info_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 else:
-                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/subpop-{}_kkt_frac_info_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/subpop-{}_kkt_frac_info_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 np.savez(filename,
                         kkt_fraction_max_loss_diffs = np.array(kkt_fraction_max_loss_diffs),
                         kkt_fraction_norm_diffs = np.array(kkt_fraction_norm_diffs),
@@ -791,20 +772,20 @@ for valid_theta_err in valid_theta_errs:
                 print(np.array(tmp_trn_acc)[a/args.repeat_num])
                 print(np.array(tmp_trn_sub_acc)[a/args.repeat_num])
                 print(np.array(tmp_trn_nsub_acc)[a/args.repeat_num])
-                
+
             else:
                 # when loading the files, only load the full kkt attack
-                # load the kkt related model and data 
+                # load the kkt related model and data
                 kkt_fraction = 1
                 if args.poison_whole:
-                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/whole-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/whole-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
                 else:
-                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/subpop-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/subpop-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type,subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
                 kkt_model_p = joblib.load(open(filename, 'rb'))
                 if args.poison_whole:
-                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/whole-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/whole-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
                 else:
-                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/subpop-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/subpop-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
                 data_info = np.load(filename)
                 kkt_x_modified = data_info["kkt_x_modified"]
                 kkt_y_modified = data_info["kkt_y_modified"]
@@ -828,7 +809,7 @@ for valid_theta_err in valid_theta_errs:
                 print('Train Target Acc : ', kkt_model_p.score(trn_sub_x, trn_sub_y))
                 print('Train Collat Acc : ', kkt_model_p.score(trn_nsub_x,trn_nsub_y))
 
-            # sanity check for kkt points 
+            # sanity check for kkt points
             assert np.array_equal(X_train, kkt_x_modified[idx_clean,:])
             assert np.array_equal(y_train,kkt_y_modified[idx_clean])
 
@@ -884,8 +865,8 @@ for valid_theta_err in valid_theta_errs:
                 X_train,y_train,online_poisons_x,online_poisons_y,args)
             print("Grad norm difference of KKT to target:",kkt_grad_norm_diff)
             print("Grad norm difference of adaptive to target:",ol_grad_norm_diff)
-            
-            # Print the lower bound and performance of different attacks 
+
+            # Print the lower bound and performance of different attacks
             final_norm_diffs,kkt_acc_scores, ol_acc_scores = compare_attack_and_lower_bound(online_poisons_y,
                                                                 X_train,
                                                                 y_train,
@@ -909,16 +890,16 @@ for valid_theta_err in valid_theta_errs:
         if  args.target_model == "kkt" or args.target_model == "all":
             print("------- Use KKT model as Target Model -----")
             # load the kkt related model and data
-            kkt_fraction = 1  
+            kkt_fraction = 1
             if args.poison_whole:
-                filename = 'files/kkt_models/{}/{}/{}/{}/{}/whole-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/whole-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
             else:
-                filename = 'files/kkt_models/{}/{}/{}/{}/{}/subpop-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/subpop-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
             kkt_model_p = joblib.load(open(filename, 'rb'))
             if args.poison_whole:
-                filename = 'files/kkt_models/{}/{}/{}/{}/{}/whole-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/whole-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
             else:
-                filename = 'files/kkt_models/{}/{}/{}/{}/{}/subpop-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/subpop-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
             data_info = np.load(filename)
             kkt_x_modified = data_info["kkt_x_modified"]
             kkt_y_modified = data_info["kkt_y_modified"]
@@ -946,14 +927,14 @@ for valid_theta_err in valid_theta_errs:
             kkt_tol_par = 0
             # check if adaptive online attack is needed
             if args.poison_whole:
-                filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_kkt_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_kkt_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
             else:
-                filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_kkt_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_kkt_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
             if not os.path.isfile(filename):
                 # start the lower bound computation process
                 # reset current model to clean model, just to measure the impact of curr_model
                 # curr_model.fit(X_train, y_train)
-                
+
                 print("[Sanity KKT] Acc of current model:",curr_model.score(X_test,y_test),curr_model.score(X_train,y_train))
 
                 online_poisons_x, online_poisons_y, best_lower_bound, conser_lower_bound, best_max_loss_x,\
@@ -997,18 +978,18 @@ for valid_theta_err in valid_theta_errs:
                     random_state=args.rand_seed,
                     verbose=False,
                     max_iter = 1000)
-                model_p_online.fit(online_full_x, online_full_y) 
+                model_p_online.fit(online_full_x, online_full_y)
 
                 # need to save the posioned model from our attack, for the purpose of validating the lower bound for the online attack
                 if args.poison_whole:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_kkt_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_kkt_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 else:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_kkt_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_kkt_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 joblib.dump(model_p_online, filename)
                 if args.poison_whole:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_kkt_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_kkt_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 else:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_kkt_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_kkt_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 np.savez(filename,
                         online_poisons_x = online_poisons_x,
                         online_poisons_y = online_poisons_y,
@@ -1017,7 +998,7 @@ for valid_theta_err in valid_theta_errs:
                         best_max_loss_x = best_max_loss_x,
                         best_max_loss_y = best_max_loss_y,
                         target_poison_max_losses = target_poison_max_losses,
-                        current_total_losses = current_total_losses, 
+                        current_total_losses = current_total_losses,
                         max_loss_diffs = max_loss_diffs_reg,
                         lower_bounds = lower_bounds,
                         ol_tol_params = ol_tol_params,
@@ -1026,9 +1007,9 @@ for valid_theta_err in valid_theta_errs:
                         )
             else:
                 if args.poison_whole:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_kkt_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_kkt_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 else:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_kkt_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_kkt_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 data_info = np.load(filename)
                 online_poisons_x = data_info["online_poisons_x"]
                 online_poisons_y = data_info["online_poisons_y"]
@@ -1040,15 +1021,15 @@ for valid_theta_err in valid_theta_errs:
                 current_total_losses = data_info["current_total_losses"]
                 max_loss_diffs_reg = data_info["max_loss_diffs"]
                 lower_bounds = data_info["lower_bounds"]
-                ol_tol_params = data_info["ol_tol_params"]  
+                ol_tol_params = data_info["ol_tol_params"]
                 ol_tol_par = ol_tol_params[-1]
                 online_acc_scores = data_info['online_acc_scores']
                 norm_diffs = data_info['norm_diffs']
 
                 if args.poison_whole:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_kkt_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_kkt_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 else:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_kkt_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_kkt_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 model_p_online = joblib.load(open(filename, 'rb'))
 
             # summarize the attack results
@@ -1080,14 +1061,14 @@ for valid_theta_err in valid_theta_errs:
             print("------- Use Aptive Poison model as Target Model -----")
             # load the adaptive attack models
             if args.poison_whole:
-                filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_real_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_real_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
             else:
-                filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_real_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_real_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
             target_model_p_online = joblib.load(open(filename, 'rb'))
             if args.poison_whole:
-                filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
             else:
-                filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
             data_info = np.load(filename)
             target_online_poisons_x = data_info["online_poisons_x"]
             target_online_poisons_y = data_info["online_poisons_y"]
@@ -1095,9 +1076,9 @@ for valid_theta_err in valid_theta_errs:
             target_online_full_y = np.concatenate((y_train,target_online_poisons_y),axis = 0)
 
             if args.poison_whole:
-                filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_online_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_online_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
             else:
-                filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_online_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_online_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
             if not os.path.isfile(filename):
                 # validate it only when adaptive attack did execute for a while
                 if len(target_online_poisons_y) > 0:
@@ -1105,15 +1086,15 @@ for valid_theta_err in valid_theta_errs:
                     idx_poison = slice(X_train.shape[0], target_online_full_x.shape[0])
                     idx_clean = slice(0, X_train.shape[0])
                     assert np.array_equal(X_train, target_online_full_x[idx_clean,:])
-                    assert np.array_equal(y_train, target_online_full_y[idx_clean])    
+                    assert np.array_equal(y_train, target_online_full_y[idx_clean])
                     target_model.coef_ = target_model_p_online.coef_
                     target_model.intercept_ = target_model_p_online.intercept_
                     # load the kkt model and get the kkt stop criteria
                     kkt_fraction = 1
                     if args.poison_whole:
-                        filename = 'files/kkt_models/{}/{}/{}/{}/{}/whole-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                        filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/whole-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
                     else:
-                        filename = 'files/kkt_models/{}/{}/{}/{}/{}/subpop-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                        filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/subpop-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
                     kkt_model_p = joblib.load(open(filename, 'rb'))
                     kkt_tol_par_max_loss = -1
                     for y_b in set(y_train):
@@ -1182,17 +1163,17 @@ for valid_theta_err in valid_theta_errs:
                         random_state=args.rand_seed,
                         verbose=False,
                         max_iter = 1000)
-                    model_p_online.fit(online_full_x, online_full_y) 
+                    model_p_online.fit(online_full_x, online_full_y)
                     # need to save the posioned model from our attack, for the purpose of validating the lower bound for the online attack
                     if args.poison_whole:
-                        filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_online_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                        filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_online_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                     else:
-                        filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_online_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                        filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_online_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                     joblib.dump(model_p_online, filename)
                     if args.poison_whole:
-                        filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_online_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                        filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_online_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                     else:
-                        filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_online_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                        filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_online_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                     np.savez(filename,
                             online_poisons_x = online_poisons_x,
                             online_poisons_y = online_poisons_y,
@@ -1201,20 +1182,20 @@ for valid_theta_err in valid_theta_errs:
                             best_max_loss_x = best_max_loss_x,
                             best_max_loss_y = best_max_loss_y,
                             target_poison_max_losses = target_poison_max_losses,
-                            current_total_losses = current_total_losses, 
+                            current_total_losses = current_total_losses,
                             max_loss_diffs = max_loss_diffs_reg,
                             lower_bounds = lower_bounds,
                             ol_tol_params = ol_tol_params,
                             online_acc_scores = np.array(online_acc_scores),
                             norm_diffs = norm_diffs
-                            ) 
+                            )
             else:
                 # load data
                 if args.poison_whole:
                     if args.poison_whole:
-                        filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_online_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                        filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_online_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                     else:
-                        filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_online_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                        filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_online_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 data_info = np.load(filename)
                 online_poisons_x = data_info["online_poisons_x"]
                 online_poisons_y = data_info["online_poisons_y"]
@@ -1226,15 +1207,15 @@ for valid_theta_err in valid_theta_errs:
                 current_total_losses = data_info["current_total_losses"]
                 max_loss_diffs_reg = data_info["max_loss_diffs"]
                 lower_bounds = data_info["lower_bounds"]
-                ol_tol_params = data_info["ol_tol_params"] 
-                ol_tol_par = ol_tol_params[-1] 
+                ol_tol_params = data_info["ol_tol_params"]
+                ol_tol_par = ol_tol_params[-1]
                 online_acc_scores = data_info['online_acc_scores']
                 norm_diffs = data_info['norm_diffs']
                 # load model
                 if args.poison_whole:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_online_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_online_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 else:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_online_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,target_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_online_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 model_p_online = joblib.load(open(filename, 'rb'))
 
             # summarize attack results
@@ -1260,24 +1241,24 @@ for valid_theta_err in valid_theta_errs:
                     kkt_tol_par, ol_tol_par] + final_norm_diffs + orig_model_acc_scores + target_model_acc_scores + kkt_acc_scores + ol_acc_scores
             # write to csv files
             ol_lower_bound_writer.writerow(ol_target_lower_bound_and_attacks)
-            
+
         if args.target_model == "compare":
             # only for the indiscriminate setting, compare our attack with improved target model generation and KKT attack
             # with original version of target model generation.
             if args.dataset == 'mnist_17':
                 print("------- Compare our improved attack to baseline KKT attack -----")
                 # load the kkt related model and data
-                kkt_fraction = 1  
+                kkt_fraction = 1
                 speific_gen_proc = 'orig'
                 if args.poison_whole:
-                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/whole-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,speific_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/whole-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,speific_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
                 else:
-                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/subpop-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,speific_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/subpop-{}_model_tol-{}_err-{}_kktfrac-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,speific_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
                 kkt_model_p = joblib.load(open(filename, 'rb'))
                 if args.poison_whole:
-                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/whole-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,speific_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/whole-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,speific_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
                 else:
-                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/subpop-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,speific_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
+                    filename = 'files/kkt_models/{}/{}/{}/{}/{}/{}/subpop-{}_data_tol-{}_err-{}_kktfrac-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,speific_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err,kkt_fraction)
                 data_info = np.load(filename)
                 kkt_x_modified = data_info["kkt_x_modified"]
                 kkt_y_modified = data_info["kkt_y_modified"]
@@ -1297,10 +1278,10 @@ for valid_theta_err in valid_theta_errs:
 
                 # load the improved target model
                 if args.poison_whole:
-                    fname = open('files/target_classifiers/{}/{}/improved_best_theta_whole_err-{}'.format(dataset_name,args.model_type,valid_theta_err), 'rb')  
-                    
+                    fname = open('files/target_classifiers/{}/{}/{}/improved_best_theta_whole_err-{}'.format(dataset_name,args.model_type, subpop_type,valid_theta_err), 'rb')
+
                 else:
-                    fname = open('files/target_classifiers/{}/{}/improved_best_theta_subpop_{}_err-{}'.format(dataset_name,args.model_type,cl_ind,valid_theta_err), 'rb')  
+                    fname = open('files/target_classifiers/{}/{}/{}/improved_best_theta_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type,subpop_ind,valid_theta_err), 'rb')
                 f = pickle.load(fname)
                 tmp_best_target_theta = f['thetas']
                 tmp_best_target_bias = f['biases']
@@ -1311,19 +1292,19 @@ for valid_theta_err in valid_theta_errs:
                 speific_gen_proc = 'improved'
                 # check if adaptive online attack is needed
                 if args.poison_whole:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_compare_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,speific_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_compare_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,speific_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 else:
-                    filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_compare_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,speific_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                    filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_compare_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,speific_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                 if not os.path.isfile(filename):
                     # start the lower bound computation process
                     # reset current model to clean model, just to measure the impact of curr_model
                     # curr_model.fit(X_train, y_train)
-                    
+
                     print("[Sanity Compare] Acc of current model:",curr_model.score(X_test,y_test),curr_model.score(X_train,y_train))
                     args.fixed_budget = kkt_x_modified.shape[0]-X_train.shape[0]
                     print("Now run the online attack with fixed number of points:",args.fixed_budget)
                     assert args.fixed_budget > 0
-                    
+
 
                     online_poisons_x, online_poisons_y, best_lower_bound, conser_lower_bound, best_max_loss_x,\
                     best_max_loss_y, ol_tol_par, target_poison_max_losses, current_total_losses,\
@@ -1366,18 +1347,18 @@ for valid_theta_err in valid_theta_errs:
                         random_state=args.rand_seed,
                         verbose=False,
                         max_iter = 1000)
-                    model_p_online.fit(online_full_x, online_full_y) 
+                    model_p_online.fit(online_full_x, online_full_y)
 
                     # need to save the posioned model from our attack, for the purpose of validating the lower bound for the online attack
                     if args.poison_whole:
-                        filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_compare_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,speific_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                        filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_compare_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,speific_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                     else:
-                        filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_compare_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,speific_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                        filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_compare_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,speific_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                     joblib.dump(model_p_online, filename)
                     if args.poison_whole:
-                        filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_compare_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,speific_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                        filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_compare_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,speific_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                     else:
-                        filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_compare_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,speific_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                        filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_compare_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,speific_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                     np.savez(filename,
                             online_poisons_x = online_poisons_x,
                             online_poisons_y = online_poisons_y,
@@ -1386,7 +1367,7 @@ for valid_theta_err in valid_theta_errs:
                             best_max_loss_x = best_max_loss_x,
                             best_max_loss_y = best_max_loss_y,
                             target_poison_max_losses = target_poison_max_losses,
-                            current_total_losses = current_total_losses, 
+                            current_total_losses = current_total_losses,
                             max_loss_diffs = max_loss_diffs_reg,
                             lower_bounds = lower_bounds,
                             ol_tol_params = ol_tol_params,
@@ -1395,9 +1376,9 @@ for valid_theta_err in valid_theta_errs:
                             )
                 else:
                     if args.poison_whole:
-                        filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_compare_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,speific_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                        filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_compare_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,speific_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                     else:
-                        filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_compare_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type,args.rand_seed,speific_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                        filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_compare_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,speific_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                     data_info = np.load(filename)
                     online_poisons_x = data_info["online_poisons_x"]
                     online_poisons_y = data_info["online_poisons_y"]
@@ -1409,15 +1390,15 @@ for valid_theta_err in valid_theta_errs:
                     current_total_losses = data_info["current_total_losses"]
                     max_loss_diffs_reg = data_info["max_loss_diffs"]
                     lower_bounds = data_info["lower_bounds"]
-                    ol_tol_params = data_info["ol_tol_params"]  
+                    ol_tol_params = data_info["ol_tol_params"]
                     ol_tol_par = ol_tol_params[-1]
                     online_acc_scores = data_info['online_acc_scores']
                     norm_diffs = data_info['norm_diffs']
 
                     if args.poison_whole:
-                        filename = 'files/online_models/{}/{}/{}/{}/{}/whole-{}_online_for_compare_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,speific_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                        filename = 'files/online_models/{}/{}/{}/{}/{}/{}/whole-{}_online_for_compare_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,speific_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                     else:
-                        filename = 'files/online_models/{}/{}/{}/{}/{}/subpop-{}_online_for_compare_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type,args.rand_seed,speific_gen_proc,args.repeat_num,cl_ind,args.incre_tol_par,valid_theta_err)
+                        filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_compare_model_tol-{}_err-{}.sav'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,speific_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
                     model_p_online = joblib.load(open(filename, 'rb'))
 
                 # summarize the attack results
@@ -1441,7 +1422,7 @@ for valid_theta_err in valid_theta_errs:
                 kkt_tol_par, ol_tol_par] + final_norm_diffs + orig_model_acc_scores + target_model_acc_scores + kkt_acc_scores + ol_acc_scores
                 # write key attack info to the csv files
                 compare_lower_bound_writer.writerow(compare_target_lower_bound_and_attacks)
-        
+
     # close all files
     if args.target_model == "all":
         kkt_lower_bound_file.flush()

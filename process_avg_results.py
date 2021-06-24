@@ -10,10 +10,12 @@ parser.add_argument('--model_type', default='svm', choices=['lr','svm'])
 parser.add_argument('--target', default='svm', help="which target resluts to process?")
 parser.add_argument('--dataset', default='adult',
                     choices=['adult', 'mnist_17', '2d_toy', 'dogfish'])
+parser.add_argument('--subpop_type', default='cluster', choices=['cluster', 'feature'], help='subpopulaton type: cluster or feature')
 args = parser.parse_args()
 
 dataset_name = args.dataset
 model_type = args.model_type
+subpop_type = args.subpop_type
 
 if dataset_name == 'mnist_17':
     poison_whole = True
@@ -29,13 +31,13 @@ elif dataset_name == 'adult':
     if model_type == 'lr':
         incre_tol_par = 0.05
     target_gen_procs = ['orig']
-    repeat_num = 1 
+    repeat_num = 1
     valid_theta_errs = [1.0]
     rand_seeds = [12,23,34,45]
 elif dataset_name == '2d_toy':
     poison_whole = True
     if poison_whole:
-        valid_theta_errs = [0.1,0.15] 
+        valid_theta_errs = [0.1,0.15]
     else:
         valid_theta_errs = [1.0]
 elif dataset_name == 'dogfish':
@@ -44,11 +46,11 @@ elif dataset_name == 'dogfish':
         incre_tol_par = 1.0
     elif model_type == 'svm':
         incre_tol_par = 2.0
-    repeat_num = 1 
+    repeat_num = 1
     poison_whole = True
     rand_seeds = [12,23,34,45]
     if poison_whole:
-        valid_theta_errs = [0.1,0.2,0.3]  
+        valid_theta_errs = [0.1,0.2,0.3]
     else:
         valid_theta_errs = [0.9]
 
@@ -66,24 +68,24 @@ valid_errs_threshold = []
 for target_gen_proc in target_gen_procs:
     for valid_theta_err in valid_theta_errs:
         # write to the average file
-        path_name = 'files/final_results/{}/{}/{}/{}'.format(dataset_name,model_type,target_gen_proc,repeat_num)
+        path_name = 'files/final_results/{}/{}/{}/{}/{}'.format(dataset_name,model_type, subpop_type, target_gen_proc,repeat_num)
         if not os.path.isdir(path_name):
             os.makedirs(path_name)
-        ave_kkt_lower_bound_file = open('files/final_results/{}/{}/{}/{}/avg_kkt_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type,target_gen_proc,repeat_num,incre_tol_par,valid_theta_err), 'w')
-        ave_kkt_lower_bound_writer = csv.writer(ave_kkt_lower_bound_file, delimiter=str(' ')) 
+        ave_kkt_lower_bound_file = open('files/final_results/{}/{}/{}/{}/{}/avg_kkt_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type, subpop_type,target_gen_proc,repeat_num,incre_tol_par,valid_theta_err), 'w')
+        ave_kkt_lower_bound_writer = csv.writer(ave_kkt_lower_bound_file, delimiter=str(' '))
         ave_kkt_lower_bound_writer.writerow(header_info)
 
-        ave_real_lower_bound_file = open('files/final_results/{}/{}/{}/{}/avg_real_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type,target_gen_proc,repeat_num,incre_tol_par,valid_theta_err), 'w')
-        ave_real_lower_bound_writer = csv.writer(ave_real_lower_bound_file, delimiter=str(' ')) 
+        ave_real_lower_bound_file = open('files/final_results/{}/{}/{}/{}/{}/avg_real_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type, subpop_type,target_gen_proc,repeat_num,incre_tol_par,valid_theta_err), 'w')
+        ave_real_lower_bound_writer = csv.writer(ave_real_lower_bound_file, delimiter=str(' '))
         ave_real_lower_bound_writer.writerow(header_info+['kkt_norm_grad_diff','ol_norm_grad_diff'])
 
-        ave_ol_lower_bound_file = open('files/final_results/{}/{}/{}/{}/avg_ol_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type,target_gen_proc,repeat_num,incre_tol_par,valid_theta_err), 'w')
-        ave_ol_lower_bound_writer = csv.writer(ave_ol_lower_bound_file, delimiter=str(' ')) 
+        ave_ol_lower_bound_file = open('files/final_results/{}/{}/{}/{}/{}/avg_ol_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type, subpop_type,target_gen_proc,repeat_num,incre_tol_par,valid_theta_err), 'w')
+        ave_ol_lower_bound_writer = csv.writer(ave_ol_lower_bound_file, delimiter=str(' '))
         ave_ol_lower_bound_writer.writerow(header_info)
-        
+
         if args.dataset == 'mnist_17' and target_gen_proc == 'orig':
-            ave_compare_lower_bound_file = open('files/final_results/{}/{}/{}/{}/avg_compare_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type,'orig',repeat_num,incre_tol_par,valid_theta_err), 'w')
-            ave_compare_lower_bound_writer = csv.writer(ave_compare_lower_bound_file, delimiter=str(' ')) 
+            ave_compare_lower_bound_file = open('files/final_results/{}/{}/{}/{}/{}/avg_compare_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type, subpop_type,'orig',repeat_num,incre_tol_par,valid_theta_err), 'w')
+            ave_compare_lower_bound_writer = csv.writer(ave_compare_lower_bound_file, delimiter=str(' '))
             ave_compare_lower_bound_writer.writerow(header_info)
 
         kkt_data_all = []
@@ -94,7 +96,7 @@ for target_gen_proc in target_gen_procs:
         for rand_seed in rand_seeds:
             print("original data mat shape:")
             # load the files and read average them
-            fname = 'files/results/{}/{}/{}/{}/{}/kkt_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type,rand_seed,target_gen_proc,repeat_num,incre_tol_par,valid_theta_err)
+            fname = 'files/results/{}/{}/{}/{}/{}/{}/kkt_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type, subpop_type,rand_seed,target_gen_proc,repeat_num,incre_tol_par,valid_theta_err)
             kkt_data = genfromtxt(fname, delimiter=str(' '))
             if dataset_name == 'mnist_17':
                 kkt_data = np.expand_dims(kkt_data,axis=0)
@@ -102,14 +104,14 @@ for target_gen_proc in target_gen_procs:
             kkt_data_all.append(kkt_data)
             record_row_num = len(kkt_data)
 
-            fname = 'files/results/{}/{}/{}/{}/{}/real_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type,rand_seed,target_gen_proc,repeat_num,incre_tol_par,valid_theta_err)
+            fname = 'files/results/{}/{}/{}/{}/{}/{}/real_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type, subpop_type,rand_seed,target_gen_proc,repeat_num,incre_tol_par,valid_theta_err)
             real_data = genfromtxt(fname, delimiter=str(' '))
             if dataset_name == 'mnist_17':
                 real_data = np.expand_dims(real_data,axis=0)
             real_data_all.append(real_data)
             print(real_data.shape)
 
-            fname = 'files/results/{}/{}/{}/{}/{}/ol_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type,rand_seed,target_gen_proc,repeat_num,incre_tol_par,valid_theta_err)
+            fname = 'files/results/{}/{}/{}/{}/{}/{}/ol_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type, subpop_type,rand_seed,target_gen_proc,repeat_num,incre_tol_par,valid_theta_err)
             ol_data = genfromtxt(fname, delimiter=str(' '))
             if dataset_name == 'mnist_17':
                 ol_data = np.expand_dims(ol_data,axis=0)
@@ -118,7 +120,7 @@ for target_gen_proc in target_gen_procs:
 
             if args.dataset == "mnist_17" and target_gen_proc == 'orig':
                 # the compare file is designed to compare KKT with original gen process and our attack with improved target generation process
-                fname = 'files/results/{}/{}/{}/{}/{}/compare_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type,rand_seed,'orig',repeat_num,incre_tol_par,valid_theta_err)
+                fname = 'files/results/{}/{}/{}/{}/{}/{}/compare_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,model_type, subpop_type,rand_seed,'orig',repeat_num,incre_tol_par,valid_theta_err)
                 compare_data = genfromtxt(fname, delimiter=str(' '))
                 if dataset_name == 'mnist_17':
                     compare_data = np.expand_dims(compare_data,axis=0)
@@ -141,10 +143,10 @@ for target_gen_proc in target_gen_procs:
             print(kkt_data_all.shape,real_data_all.shape,ol_data_all.shape,compare_data_all.shape)
         else:
             print(kkt_data_all.shape,real_data_all.shape,ol_data_all.shape)
-        
+
         # compute the mean and std for each of rows
         print("row number of each raw data file:",record_row_num)
-       
+
         for j in range(record_row_num):
             kkt_selected_records = []
             real_selected_records = []
@@ -170,7 +172,7 @@ for target_gen_proc in target_gen_procs:
             kkt_std = np.std(kkt_selected_records,axis=0)
             ave_kkt_lower_bound_writer.writerow(kkt_mean)
             ave_kkt_lower_bound_writer.writerow(kkt_std)
-            
+
             real_mean = np.mean(real_selected_records,axis=0)
             real_std = np.std(real_selected_records,axis=0)
             ave_real_lower_bound_writer.writerow(real_mean)
@@ -198,5 +200,3 @@ for target_gen_proc in target_gen_procs:
         if args.dataset == 'mnist' and target_gen_proc == 'orig':
             ave_compare_lower_bound_file.flush()
             ave_compare_lower_bound_file.close()
-        
-

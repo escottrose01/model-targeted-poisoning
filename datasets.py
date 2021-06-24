@@ -15,6 +15,8 @@ import scipy.sparse as sparse
 import scipy.io as sio
 import pickle
 
+import pandas as pd
+
 # from utils import load_adult
 # Local running
 DATA_FOLDER = 'files/data'
@@ -176,7 +178,7 @@ def load_2d_toy(class_sep = 1.0):
     # convert to {-1,1} as class labels
     Y_train = 2*Y_train-1
     Y_test = 2*Y_test-1
-    return X_train, Y_train, X_test, Y_test 
+    return X_train, Y_train, X_test, Y_test
 
 def load_imdb_sparse():
     dataset_path = os.path.join(DATA_FOLDER)
@@ -201,8 +203,61 @@ def load_adult():
     X_test = adult_all['X_test']
     Y_test = adult_all['y_test']
     # print(X_train.shape,Y_train.shape,X_test.shape,Y_test.shape)
-    return X_train, Y_train, X_test, Y_test 
+    return X_train, Y_train, X_test, Y_test
 
+def load_adult_unscaled():
+    # most of this is gathered from the subpopulation attack paper
+    # reproduces the data preprocessing steps, but no scaling
+    fname_trn = DATA_FOLDER+'/adult.data'
+    fname_tst = DATA_FOLDER+'/adult.test'
+    column_names = ['age', 'workclass', 'fnlwgt', 'education',
+        'education-num', 'marital-status', 'occupation', 'relationship',
+        'race', 'sex', 'capital-gain', 'capital-loss', 'hours-per-week',
+        'native-country', 'income']
+    data_trn = pd.read_csv(fname_trn, header=None,
+        names=column_names)
+    data_tst = pd.read_csv(fname_tst, header=None,
+        names=column_names)
+
+    np.random.seed(0)
+
+    full = pd.concat([data_trn, data_tst], axis=0)
+    full = full.drop(['education', 'native-country', 'fnlwgt'], axis=1)
+    categoricals = ['workclass', 'education-num', 'marital-status', 'occupation', 'relationship', 'race', 'sex', 'income']
+    for col in categoricals:
+        prefix_col = col.split('-')[0]
+        full = pd.concat([full, pd.get_dummies(full[col], prefix=prefix_col, drop_first=True)], axis=1)
+        full = full.drop(col, axis=1)
+
+    full_np = full.to_numpy()
+    y = (full_np[:, -1] + full_np[:, -2]).astype(np.float32)
+    # 32561 is a "cross validator line" with no data
+    # and also indicates the train / test split
+    split_ix = 32561
+    y = np.delete(y, split_ix, axis=0)
+    x = np.delete(full_np, [full_np.shape[1]-1, full_np.shape[1]-2, full_np.shape[1]-3], axis=1)
+    x = np.delete(x, split_ix, axis=0).astype(np.float32)
+
+    trn_x, trn_y = x[:split_ix], y[:split_ix]
+    tst_x, tst_y = x[split_ix:], y[split_ix:]
+
+    trn_zero_inds = np.where(trn_y==0)[0]
+    trn_one_inds = np.where(trn_y==1)[0]
+    tst_zero_inds = np.where(tst_y==0)[0]
+    tst_one_inds = np.where(tst_y==1)[0]
+
+    trn_zeros = np.random.choice(trn_zero_inds.shape[0], trn_one_inds.shape[0], replace=False)
+    tst_zeros = np.random.choice(tst_zero_inds.shape[0], tst_one_inds.shape[0], replace=False)
+
+    trn_x = np.concatenate((trn_x[trn_zeros], trn_x[trn_one_inds]), axis=0)
+    tst_x = np.concatenate((tst_x[tst_zeros], tst_x[tst_one_inds]), axis=0)
+    trn_y = np.concatenate((trn_y[trn_zeros], trn_y[trn_one_inds]), axis=0)
+    tst_y = np.concatenate((tst_y[tst_zeros], tst_y[tst_one_inds]), axis=0)
+
+    trn_shuffle = np.random.choice(trn_x.shape[0], trn_x.shape[0], replace=False)
+    trn_x, trn_y = trn_x[trn_shuffle], trn_y[trn_shuffle]
+
+    return trn_x, trn_y, tst_x, tst_y, list(full.columns)
 
 def load_dataset(dataset_name,class_sep = 1.0):
     if dataset_name == 'imdb':
@@ -213,6 +268,8 @@ def load_dataset(dataset_name,class_sep = 1.0):
         return load_dogfish()
     elif dataset_name == 'adult':
         return load_adult()
+    elif dataset_name == 'adult_unscaled':
+        return load_adult_unscaled()
     elif dataset_name == '2d_toy':
         return load_2d_toy(class_sep=class_sep)
     else:
