@@ -12,7 +12,7 @@ Gurobi optimizer, if needed, can be setup by obtaining a license and following i
 # Run the Code
 Please follow the instructions below to reproduce the results shown in the paper:
 1. unzip the file `files.zip` and you will see folder `files`, which contains the Adult, MNIST-17 and Dogfish datasets used for evaluation in the paper. In addition, we also provide the target classifiers for each dataset in the folder `files/target_classifiers`.
-2. Skip this step if you wish to use the subpopulations we provide. Else, you can generate the target subpopulations by running the command below. To generate subpopulations for other datasets, replace `adult` with `mnist_17` or `dogfish` in the command below. To use feature-based subpopulations, replace `cluster` with `feature`. You can also change the number of clusters for cluster subpopulations using --num_clusters or the desired subpopulation fraction for feature subpopulations using --subpop_ratio.
+2. Skip this step if you wish to use the subpopulations we provide. Else, you can generate the target subpopulations by running the command below. To generate subpopulations for other datasets, replace `adult` with `mnist_17` or `dogfish` in the command below. To use feature-based subpopulations, replace `cluster` with `feature`. You can also change the number of clusters for cluster subpopulations using `--num_clusters` or the desired subpopulation fraction for feature subpopulations using `--subpop_ratio`.
 ```
 python generate_subpops.py --dataset adult --subpop_type cluster
 ```
