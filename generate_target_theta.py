@@ -622,8 +622,8 @@ else:
     for valid_theta_err in valid_theta_errs:
         print("#---------Selected Subpops------#")
         for i in range(len(subpop_cts)):
-            cl_ind, cl_ct = subpop_inds[i], subpop_cts[i]
-            print("cluster ID and Size:",cl_ind,cl_ct)
+            subpop_ind, subpop_ct = subpop_inds[i], subpop_cts[i]
+            print("cluster ID and Size:",subpop_ind,subpop_ct)
             thetas = []
             biases = []
             train_losses = []
@@ -631,7 +631,7 @@ else:
             collat_errs = []
             # best_collat_acc = 0
             min_train_loss = 1e10
-            
+
             tst_subpop_inds = np.array([np.any(v == subpop_ind) for v in tst_all_subpops])
             trn_subpop_inds = np.array([np.any(v == subpop_ind) for v in trn_all_subpops])
             # indices of points belong to subpop
@@ -652,7 +652,7 @@ else:
                 assert (trn_sub_y == major_lab_tst).all()
 
             # check the target and collateral damage info
-            print("----------Subpop Indx: {}------".format(cl_ind))
+            print("----------Subpop Indx: {}------".format(subpop_ind))
             print('Clean Train Target Acc : %.3f' % model.score(trn_sub_x, trn_sub_y))
             print('Clean Train Collat Acc : %.3f' % model.score(trn_nsub_x,trn_nsub_y))
             print('Clean Test Target Acc : %.3f' % tst_sub_acc)
@@ -800,12 +800,12 @@ else:
             if select_best:
                 if not os.path.isdir('files/target_classifiers/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type)):
                     os.makedirs('files/target_classifiers/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type))
-                file_all = open('files/target_classifiers/{}/{}/{}/orig_best_theta_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type, int(cl_ind),valid_theta_err), 'wb')
+                file_all = open('files/target_classifiers/{}/{}/{}/orig_best_theta_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type, int(subpop_ind),valid_theta_err), 'wb')
                 pickle.dump(data_best, file_all,protocol=2)
                 file_all.close()
             else:
                 if not os.path.isdir('files/target_classifiers/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type)):
                     os.makedirs('files/target_classifiers/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type))
-                file_all = open('files/target_classifiers/{}/{}/{}/orig_thetas_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type, int(cl_ind),valid_theta_err), 'wb')
+                file_all = open('files/target_classifiers/{}/{}/{}/orig_thetas_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type, int(subpop_ind),valid_theta_err), 'wb')
                 pickle.dump(data_all, file_all,protocol=2)
                 file_all.close()
