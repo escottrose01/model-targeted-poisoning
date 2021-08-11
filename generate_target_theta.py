@@ -20,7 +20,8 @@ parser.add_argument('--dataset', default='adult',help="three datasets: mnist_17,
 parser.add_argument('--weight_decay',default=0.09, type=float, help='weight decay for regularizers')
 parser.add_argument('--improved',action="store_true",help='if true, target classifier is obtained through improved process')
 parser.add_argument('--subpop',action="store_true",help='if true, subpopulation attack will be performed')
-parser.add_argument('--subpop_type', default='cluster', choices=['cluster', 'feature'], help='subpopulaton type: cluster or feature')
+parser.add_argument('--subpop_type', default='cluster', choices=['cluster', 'feature', 'random'], help='subpopulaton type: cluster, feature, or random')
+parser.add_argument('--all_subpops', action="store_true", help='if true, generates models for all subpopulations')
 
 args = parser.parse_args()
 
@@ -41,6 +42,10 @@ elif args.dataset == "2d_toy":
 elif args.dataset == "dogfish":
     subpop = args.subpop
     args.weight_decay = 1.1
+elif args.dataset in ['loan', 'compas']:
+    subpop = True
+else:
+    subpop = args.subpop
 
 if args.model_type == 'svm':
     print("chosen model: svm")
@@ -53,7 +58,7 @@ else:
 prune_theta = True
 
 dataset_name = args.dataset
-assert dataset_name in ['adult','mnist_17','2d_toy','dogfish']
+assert dataset_name in ['adult','mnist_17','2d_toy','dogfish', 'loan', 'compas']
 
 subpop_type = args.subpop_type
 
@@ -422,10 +427,14 @@ elif args.improved:
             trn_nsub_x, trn_nsub_y = X_train[trn_non_sbcl], Y_train[trn_non_sbcl]
             tst_sub_acc = model.score(tst_sub_x, tst_sub_y)
             # make sure subpop is from class -1
-            if dataset_name == 'adult':
+            if dataset_name in ['adult', 'loan', 'compas']:
                 assert (tst_sub_y == -1).all()
                 assert (trn_sub_y == -1).all()
             else:
+                mode_tst = scipy.stats.mode(tst_sub_y)
+                mode_trn = scipy.stats.mode(trn_sub_y)
+                major_lab_trn = mode_trn.mode[0]
+                major_lab_tst = mode_tst.mode[0]
                 assert (tst_sub_y == major_lab_tst).all()
                 assert (trn_sub_y == major_lab_tst).all()
             # check the target and collateral damage info
@@ -594,7 +603,9 @@ else:
     print(subpop_inds, subpop_cts)
     # print(tst_sub_accs)
     # sort the subpop based on tst acc and choose 5 highest ones
-    if args.dataset in ['adult','dogfish']:
+    if args.all_subpops:
+        highest_5_inds = range(len(trn_sub_accs))
+    elif args.dataset in ['adult','dogfish']:
         highest_5_inds = np.argsort(trn_sub_accs)[-3:]
     elif args.dataset == '2d_toy':
         highest_5_inds = np.argsort(trn_sub_accs)[-4:]
@@ -612,7 +623,10 @@ else:
     else:
         valid_theta_errs = [1.0]
     # repitition of the points
-    if dataset_name != "dogfish":
+    if dataset_name == 'compas':
+        quantile_tape = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55,0.8,1.0]
+        rep_tape = [1, 2, 3, 5, 8, 10, 12, 15, 20, 25, 30,40,50,80,100,200,500]
+    elif dataset_name != "dogfish":
         quantile_tape = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55,0.8,1.0]
         rep_tape = [1, 2, 3, 5, 8, 10, 12, 15, 20, 25, 30,40,50,80,100]
     else:
@@ -644,10 +658,14 @@ else:
             trn_nsub_x, trn_nsub_y = X_train[trn_non_sbcl], Y_train[trn_non_sbcl]
             tst_sub_acc = model.score(tst_sub_x, tst_sub_y)
             # make sure subpop is from class -1
-            if dataset_name == 'adult':
+            if dataset_name in ['adult', 'loan', 'compas']:
                 assert (tst_sub_y == -1).all()
                 assert (trn_sub_y == -1).all()
             else:
+                mode_tst = scipy.stats.mode(tst_sub_y)
+                mode_trn = scipy.stats.mode(trn_sub_y)
+                major_lab_trn = mode_trn.mode[0]
+                major_lab_tst = mode_tst.mode[0]
                 assert (tst_sub_y == major_lab_tst).all()
                 assert (trn_sub_y == major_lab_tst).all()
 

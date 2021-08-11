@@ -8,6 +8,7 @@ from sklearn import cluster
 import csv
 import pickle
 import sklearn
+import scipy
 
 import cvxpy as cvx
 idx_improved  = 0
@@ -672,6 +673,9 @@ def incre_online_learning(X_train,
             lr = 0.1
         num_steps = 20000
 
+    best_max_loss_x = None
+    best_max_loss_y = None
+
     X_tar_poison = target_poisons["X_poison"]
     Y_tar_poison = target_poisons["Y_poison"]
     target_num_checker = len(X_tar_poison)
@@ -1136,33 +1140,38 @@ def compare_attack_and_lower_bound(online_poisons_y,
     ol_acc_scores = [total_tst_acc,target_tst_acc,collat_tst_acc,total_trn_acc,target_trn_acc,collat_trn_acc]
     return [kkt_norm_diff, ol_norm_diff],kkt_acc_scores,ol_acc_scores
 
-def get_subpop_inds(dataset_name, tst_subpop_inds, trn_subpop_inds, Y_test, Y_train):
-    # indices of points belong to subpop
-    if dataset_name == "adult":
-        tst_sbcl = np.where(np.logical_and(tst_subpop_inds, Y_test == -1))
-        trn_sbcl = np.where(np.logical_and(trn_subpop_inds, Y_train == -1))
-        tst_non_sbcl = np.where(np.logical_or(np.logical_not(tst_subpop_inds), Y_test != -1))
-        trn_non_sbcl = np.where(np.logical_or(np.logical_not(trn_subpop_inds), Y_train != -1))
-    else:
-        # need to first figure out the majority class and then only consider subpopulation with
-        # consistent major label on train and test data
+def get_subpop_inds(dataset_name, tst_subpop_inds, trn_subpop_inds, Y_test, Y_train, mixed=False):
+    if mixed:
         tst_sbcl = np.where(tst_subpop_inds)
         trn_sbcl = np.where(trn_subpop_inds)
-        Y_train_sel, Y_test_sel =  Y_train[trn_sbcl], Y_test[tst_sbcl]
+        tst_non_sbcl = np.where(np.logical_not(tst_subpop_inds))
+        trn_non_sbcl = np.where(np.logical_not(trn_subpop_inds))
+    else:
+        if dataset_name in ['adult', 'loan', 'compas']:
+            tst_sbcl = np.where(np.logical_and(tst_subpop_inds, Y_test == -1))
+            trn_sbcl = np.where(np.logical_and(trn_subpop_inds, Y_train == -1))
+            tst_non_sbcl = np.where(np.logical_or(np.logical_not(tst_subpop_inds), Y_test != -1))
+            trn_non_sbcl = np.where(np.logical_or(np.logical_not(trn_subpop_inds), Y_train != -1))
+        else:
+            # need to first figure out the majority class and then only consider subpopulation with
+            # consistent major label on train and test data
+            tst_sbcl = np.where(tst_subpop_inds)
+            trn_sbcl = np.where(trn_subpop_inds)
+            Y_train_sel, Y_test_sel =  Y_train[trn_sbcl], Y_test[tst_sbcl]
 
-        mode_tst = scipy.stats.mode(Y_test_sel)
-        mode_trn = scipy.stats.mode(Y_train_sel)
-        print("selected major labels in test and train data:",mode_trn,mode_tst,len(Y_train_sel),len(Y_test_sel))
-        print(type(mode_trn))
-        major_lab_trn = mode_trn.mode[0]
-        major_lab_tst = mode_tst.mode[0]
-        # print(major_lab_trn,major_lab_tst)
+            mode_tst = scipy.stats.mode(Y_test_sel)
+            mode_trn = scipy.stats.mode(Y_train_sel)
+            # print("selected major labels in test and train data:",mode_trn,mode_tst,len(Y_train_sel),len(Y_test_sel))
+            # print(type(mode_trn))
+            major_lab_trn = mode_trn.mode[0]
+            major_lab_tst = mode_tst.mode[0]
+            # print(major_lab_trn,major_lab_tst)
 
-        assert major_lab_trn ==  major_lab_tst, "inconsistent in labels between test and train subpop"
-        print("selected major label is:",major_lab_trn)
-        tst_sbcl = np.where(np.logical_and(tst_subpop_inds, Y_test == major_lab_tst))
-        trn_sbcl = np.where(np.logical_and(trn_subpop_inds, Y_train == major_lab_trn))
-        tst_non_sbcl = np.where(np.logical_or(np.logical_not(tst_subpop_inds), Y_test != major_lab_tst))
-        trn_non_sbcl = np.where(np.logical_or(np.logical_not(trn_subpop_inds), Y_train != major_lab_trn))
+            assert major_lab_trn ==  major_lab_tst, "inconsistent in labels between test and train subpop"
+            # print("selected major label is:",major_lab_trn)
+            tst_sbcl = np.where(np.logical_and(tst_subpop_inds, Y_test == major_lab_tst))
+            trn_sbcl = np.where(np.logical_and(trn_subpop_inds, Y_train == major_lab_trn))
+            tst_non_sbcl = np.where(np.logical_or(np.logical_not(tst_subpop_inds), Y_test != major_lab_tst))
+            trn_non_sbcl = np.where(np.logical_or(np.logical_not(trn_subpop_inds), Y_train != major_lab_trn))
 
     return tst_sbcl, trn_sbcl, tst_non_sbcl, trn_non_sbcl
