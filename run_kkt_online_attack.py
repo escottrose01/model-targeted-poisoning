@@ -411,6 +411,7 @@ for valid_theta_err in valid_theta_errs:
         _, ideal_collat_err = calculate_loss(margins)
         margins =y_test*(X_test.dot(best_target_theta) + best_target_bias)
         _, ideal_total_err = calculate_loss(margins)
+        generalizability = ideal_target_err
         print("Ideal Total Test Acc:",1-ideal_total_err)
         print("Ideal Target Test Acc:",1-ideal_target_err)
         print("Ideal Collat Test Acc:",1-ideal_collat_err)
@@ -464,6 +465,19 @@ for valid_theta_err in valid_theta_errs:
                     verbose=False,
                     max_iter = 1000)
         target_model.fit(X_train, y_train)
+
+        collat_model = ScikitModel(
+            C=C,
+            tol=1e-8,
+            fit_intercept=fit_intercept,
+            random_state=args.rand_seed,
+            verbose=False,
+            max_iter=1000
+        )
+        collat_model.fit(trn_nsub_x, trn_nsub_y)
+
+        avg_importance = np.linalg.norm(collat_model.coef_ - curr_model.coef_) / trn_sub_x.shape[0]
+
         # default setting for target model is the actual model
         target_model.coef_= np.array([best_target_theta])
         target_model.intercept_ = np.array([best_target_bias])
@@ -588,6 +602,8 @@ for valid_theta_err in valid_theta_errs:
             trn_df.loc[subpop_ind, 'Poisoned Overall Loss'] = pois_all_loss
             trn_df.loc[subpop_ind, 'Model Cosine Similarity'] = cosine_sim
             trn_df.loc[subpop_ind, 'Model Eucl. Distance'] = attack_euc_distance
+            trn_df.loc[subpop_ind, 'Generalizability'] = generalizability
+            trn_df.loc[subpop_ind, 'Avg Importance'] = avg_importance
 
             if not args.no_kkt:
                 ###  perform the KKT attack with same number of poisned points of our Adaptive attack ###

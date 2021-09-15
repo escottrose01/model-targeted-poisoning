@@ -677,17 +677,21 @@ else:
             print('Clean Test Collat Acc : %.3f' % model.score(tst_nsub_x, tst_nsub_y))
             print("shape of subpopulations",trn_sub_x.shape,trn_nsub_x.shape,tst_sub_x.shape,tst_nsub_x.shape)
 
+            best_theta = None
+            best_bias = None
+
             # find the loss percentile
             clean_margins = tst_sub_y*(tst_sub_x.dot(orig_theta) + orig_bias)
             ym = (-1)*tst_sub_y
             for loss_quantile in quantile_tape:
-                for tar_rep in rep_tape:
+                rep_tape_tmp = rep_tape[:] # copies list, so we can modify it
+                for tar_rep in rep_tape_tmp:
                     print(" ----- Loss Quantile {} and Repetition Number {} ------".format(loss_quantile, tar_rep))
                     X_tar = []
                     Y_tar = []
                     margin_thresh = np.quantile(clean_margins, loss_quantile)
                     for i in range(len(y_list)):
-                        active_cur = np.logical_and(tst_sub_y == y_list[i],clean_margins < margin_thresh)
+                        active_cur = np.logical_and(tst_sub_y == y_list[i],clean_margins <= margin_thresh)
                         print("valid active instance num: {}, total instance num: {}".format(np.sum(active_cur),active_cur.shape[0]))
                         X_tar_cur = tst_sub_x[active_cur,:]
                         y_tar_cur = ym[active_cur]
@@ -771,11 +775,20 @@ else:
                             best_num_poisons = np.copy(len(Y_tar))
                             print("updated lowest train loss is:",train_loss)
 
+                    # if we never found a successful target model, try this:
+                    if (best_theta is None) and (loss_quantile == quantile_tape[-1]) and (tar_rep == rep_tape_tmp[-1]):
+                        assert tar_rep < 20000, "too many repetitions needed! giving up on subpop {}".format(subpop_ind)
+                        rep_tape_tmp.append(2*rep_tape_tmp[-1])
+
+
+
             thetas = np.array(thetas)
             biases = np.array(biases)
             test_errs = np.array(test_errs)
             train_losses = np.array(train_losses)
             collat_errs = np.array(collat_errs)
+
+            assert best_theta is not None, 'Was not able to find satisfactory target model!'
 
             print("Acc of best theta and bias:")
             margins = tst_sub_y*(tst_sub_x.dot(best_theta) + best_bias)

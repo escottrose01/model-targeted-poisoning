@@ -66,10 +66,25 @@ if min(Y_train) > -1:
 print('instance in train and test data: {}, {}'.format(X_train.shape[0], X_test.shape[0]))
 
 if subpop_type == 'cluster':
-    km = cluster.KMeans(n_clusters=num_subpops, random_state=0)
-    km.fit(X_train)
-    trn_km = km.labels_
-    tst_km = km.predict(X_test)
+    seed = 0
+    ready = False
+    while not ready:
+        km = cluster.KMeans(n_clusters=num_subpops, random_state=seed)
+        km.fit(X_train)
+        trn_km = km.labels_
+        tst_km = km.predict(X_test)
+
+        ready = True
+        for subpop_ix in range(num_subpops):
+            if np.sum(Y_train[trn_km == subpop_ix] == -1) < 1 \
+                or np.sum(Y_train[trn_km == subpop_ix] == 1) < 1\
+                or np.sum(Y_test[tst_km == subpop_ix] == -1) < 1 \
+                or np.sum(Y_test[tst_km == subpop_ix] == 1) < 1:
+                ready = False
+                break
+
+        print(seed, ready)
+        seed += 1
 
     trn_all_subpops = [[x] for x in list(trn_km)]
     tst_all_subpops = [[x] for x in list(tst_km)]
@@ -136,7 +151,7 @@ elif subpop_type == 'feature':
                         col_name = 'Unknown'
                     else:
                         col_name = all_cols[hot_ix[0][0] + inds[0]]
-                    desc[feature_name] = col_name
+                    desc[str(feature_name)] = str(col_name)
 
                 print('comparing', feature_names, ', found match filtering on')
                 print('\t', [prot_col for v, prot_col in zip(subcl, prot_cols) if v > 0.5], count)
@@ -204,7 +219,9 @@ for i in range(len(subpop_cts)):
     trn_dummy_svm_labels = 2 * trn_dummy_cluster_labels - 1
     tst_dummy_svm_labels = 2 * tst_dummy_cluster_labels - 1
 
-    trn_frac_pos = np.sum(trn_sub_y) / trn_sub_x.shape[0]
+    trn_frac_pos = np.sum(trn_sub_y == 1) / trn_sub_x.shape[0]
+    tst_frac_pos = np.sum(trn_sub_y == 1) / tst_sub_x.shape[0]
+
     trn_silhouettes = sklearn.metrics.silhouette_samples(X_train, trn_dummy_cluster_labels)
     trn_df.loc[i, 'Total Pts'] = X_train.shape[0]
     trn_df.loc[i, 'Subpop Pts'] = trn_sub_x.shape[0]
@@ -217,7 +234,7 @@ for i in range(len(subpop_cts)):
     trn_df.loc[i, 'Avg Distance Ratio'] = np.mean(pdist(trn_sub_x)) / np.mean(cdist(trn_sub_x, trn_nsub_x))
     trn_df.loc[i, 'Linear Sep Score'] = sklearn.svm.LinearSVC(C=10000.0).fit(X_train, trn_dummy_svm_labels).score(trn_sub_x, trn_dummy_svm_labels[trn_sbcl]) # score assuming |subpop| << |all data|
     if subpop_type == 'feature':
-        trn_df.loc[i, 'Desc'] = str(descs[i]).replace("'", '"')
+        trn_df.loc[i, 'Semantic Info'] = str(descs[i]).replace("'", '"')
 
     if generate_tst_desc:
         tst_silhouettes = sklearn.metrics.silhouette_samples(X_test, tst_dummy_cluster_labels)
@@ -232,7 +249,7 @@ for i in range(len(subpop_cts)):
         tst_df.loc[i, 'Avg Distance Ratio'] = np.mean(pdist(tst_sub_x)) / np.mean(cdist(tst_sub_x, tst_nsub_x))
         tst_df.loc[i, 'Linear Sep Score'] = sklearn.svm.LinearSVC(C=10000.0).fit(X_test, tst_dummy_svm_labels).score(test_sub_x, tst_dummy_svm_labels[tst_sbcl]) # score assuming |subpop| << |all data|
         if subpop_type == 'feature':
-            tst_df.loc[i, 'Desc'] = str(descs[i]).replace("'", '"')
+            tst_df.loc[i, 'Semantic Info'] = str(descs[i]).replace("'", '"')
 
 trn_df.to_csv('files/data/{}_trn_{}_desc.csv'.format(dataset_name, subpop_type), index=False)
 if generate_tst_desc:
