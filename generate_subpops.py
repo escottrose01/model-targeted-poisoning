@@ -11,19 +11,20 @@ from sklearn import cluster
 import sklearn
 import pandas as pd
 from scipy.spatial.distance import pdist, cdist
+import json
 
 from datasets import load_dataset, load_dataset_cols, load_dataset_feature_inds
 from utils import get_subpop_inds
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', default='adult', help='four datasets: mnist_17, adult, 2d_toy, dogfish')
+parser.add_argument('--dataset', default='adult', help='dataset to use for subpop gen')
 parser.add_argument('--subpop_type', default='cluster', choices=['cluster', 'feature', 'random'], help='subpopulaton type: cluster, feature, or random')
 parser.add_argument('--subpop_ratio', default='0.05', help='desired subpopulation ratio for feature subpop: between 0 and 1; or <0 to ignore')
 parser.add_argument('--tolerance', default=0.001, type=float, help='tolerance value for subpop_ratio')
 parser.add_argument('--num_subpops', default='auto', help='number of clusters (subpops) to use for clustering (or random) subpop: integer or \'auto\' for default')
+parser.add_argument('--force_mixed', action='store_true', help='if true, all subpops must contain both positive and negative instances')
 
 args = parser.parse_args()
-
 
 
 NUM_SUBPOPS = {
@@ -32,10 +33,9 @@ NUM_SUBPOPS = {
     'adult' : 20,
     '2d_toy' : 4,
     'loan' : 20,
-    'compas' : 20
+    'compas' : 20,
 }
 
-assert args.dataset in ['dogfish', 'mnist_17', 'adult', '2d_toy', 'loan', 'compas'], 'not a valid dataset!'
 dataset_name = args.dataset
 
 subpop_type = args.subpop_type
@@ -51,19 +51,12 @@ except ValueError:
 generate_tst_desc = False
 
 
-
-subpop_fname = 'files/data/{}_{}_labels.txt'.format(dataset_name, subpop_type)
-if os.path.isfile(subpop_fname):
-    sys.exit(0)
-
 X_train, Y_train, X_test, Y_test = load_dataset(dataset_name)
 
 if min(Y_test) > -1:
     Y_test = 2*Y_test - 1
 if min(Y_train) > -1:
     Y_train = 2*Y_train - 1
-
-print('instance in train and test data: {}, {}'.format(X_train.shape[0], X_test.shape[0]))
 
 if subpop_type == 'cluster':
     seed = 0
@@ -75,15 +68,15 @@ if subpop_type == 'cluster':
         tst_km = km.predict(X_test)
 
         ready = True
-        for subpop_ix in range(num_subpops):
-            if np.sum(Y_train[trn_km == subpop_ix] == -1) < 1 \
-                or np.sum(Y_train[trn_km == subpop_ix] == 1) < 1\
-                or np.sum(Y_test[tst_km == subpop_ix] == -1) < 1 \
-                or np.sum(Y_test[tst_km == subpop_ix] == 1) < 1:
-                ready = False
-                break
+        if args.force_mixed:
+            for subpop_ix in range(num_subpops):
+                if np.sum(Y_train[trn_km == subpop_ix] == -1) < 1 \
+                    or np.sum(Y_train[trn_km == subpop_ix] == 1) < 1\
+                    or np.sum(Y_test[tst_km == subpop_ix] == -1) < 1 \
+                    or np.sum(Y_test[tst_km == subpop_ix] == 1) < 1:
+                    ready = False
+                    break
 
-        print(seed, ready)
         seed += 1
 
     trn_all_subpops = [[x] for x in list(trn_km)]
@@ -232,7 +225,7 @@ for i in range(len(subpop_cts)):
     trn_df.loc[i, 'Avg Silhouette'] = np.mean(trn_silhouettes[trn_subpop_inds])
     trn_df.loc[i, 'Davies Bouldin'] = sklearn.metrics.davies_bouldin_score(X_train, trn_dummy_cluster_labels)
     trn_df.loc[i, 'Avg Distance Ratio'] = np.mean(pdist(trn_sub_x)) / np.mean(cdist(trn_sub_x, trn_nsub_x))
-    trn_df.loc[i, 'Linear Sep Score'] = sklearn.svm.LinearSVC(C=10000.0).fit(X_train, trn_dummy_svm_labels).score(trn_sub_x, trn_dummy_svm_labels[trn_sbcl]) # score assuming |subpop| << |all data|
+    trn_df.loc[i, 'Linear Sep Score'] = sklearn.svm.LinearSVC(C=10000.0, max_iter=2500).fit(X_train, trn_dummy_svm_labels).score(trn_sub_x, trn_dummy_svm_labels[trn_sbcl]) # score assuming |subpop| << |all data|
     if subpop_type == 'feature':
         trn_df.loc[i, 'Semantic Info'] = str(descs[i]).replace("'", '"')
 
@@ -250,6 +243,14 @@ for i in range(len(subpop_cts)):
         tst_df.loc[i, 'Linear Sep Score'] = sklearn.svm.LinearSVC(C=10000.0).fit(X_test, tst_dummy_svm_labels).score(test_sub_x, tst_dummy_svm_labels[tst_sbcl]) # score assuming |subpop| << |all data|
         if subpop_type == 'feature':
             tst_df.loc[i, 'Semantic Info'] = str(descs[i]).replace("'", '"')
+
+if dataset_name == 'synthetic':
+    with open('files/data/synthetic.json') as f:
+        params = json.load(f)
+        for k, v in params.items():
+            trn_df[k] = v
+            if generate_tst_desc:
+                tst_df[k] = v
 
 trn_df.to_csv('files/data/{}_trn_{}_desc.csv'.format(dataset_name, subpop_type), index=False)
 if generate_tst_desc:

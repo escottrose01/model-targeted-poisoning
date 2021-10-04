@@ -779,6 +779,7 @@ def incre_online_learning(X_train,
     norm_diffs = []
     current_total_losses = []
     lower_bounds = []
+    im_models = [np.concatenate((theta_ol.flatten(), bias_ol))]
     # append the info on subpop, rest of pop and the whole pop
     trn_sub_acc = []
     trn_nsub_acc = []
@@ -809,6 +810,7 @@ def incre_online_learning(X_train,
         stop_cond = num_iter < args.fixed_budget
         print("runing with fixed number of poisoned points,",args.fixed_budget)
 
+    lower_bound_real = 0 # put this here to fix an error, might not be correct
     while stop_cond:
     # while trn_sub_acc1 > 1-args.err_threshold:
         print("***** num of poisons and target number of poisons *****:",num_iter,args.fixed_budget)
@@ -1018,6 +1020,10 @@ def incre_online_learning(X_train,
         # append the max loss point of max_loss point found w.r.t iterations
         target_poison_max_losses.append(max_loss_poison)
 
+        # save the intermediate model, if needed
+        if args.sv_im_models:
+            im_models.append(np.concatenate((theta_ol.flatten(), bias_ol)))
+
         # stop condition check
         if args.fixed_budget <= 0:
             if args.require_acc:
@@ -1061,7 +1067,7 @@ def incre_online_learning(X_train,
 
     return online_poisons_x, online_poisons_y, best_lower_bound, conser_lower_bound, best_max_loss_x, best_max_loss_y,\
          current_tol_par, np.squeeze(target_poison_max_losses), np.squeeze(current_total_losses), np.squeeze(ol_tol_params),\
-              np.squeeze(max_loss_diffs_reg), np.squeeze(lower_bounds), online_acc_scores, norm_diffs
+              np.squeeze(max_loss_diffs_reg), np.squeeze(lower_bounds), online_acc_scores, norm_diffs, im_models
 
 def compare_attack_and_lower_bound(online_poisons_y,
                                    X_train,
@@ -1147,7 +1153,7 @@ def get_subpop_inds(dataset_name, tst_subpop_inds, trn_subpop_inds, Y_test, Y_tr
         tst_non_sbcl = np.where(np.logical_not(tst_subpop_inds))
         trn_non_sbcl = np.where(np.logical_not(trn_subpop_inds))
     else:
-        if dataset_name in ['adult', 'loan', 'compas']:
+        if dataset_name in ['adult', 'loan', 'compas', 'synthetic']:
             tst_sbcl = np.where(np.logical_and(tst_subpop_inds, Y_test == -1))
             trn_sbcl = np.where(np.logical_and(trn_subpop_inds, Y_train == -1))
             tst_non_sbcl = np.where(np.logical_or(np.logical_not(tst_subpop_inds), Y_test != -1))

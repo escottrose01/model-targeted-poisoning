@@ -34,7 +34,7 @@ parser.add_argument('--model_type',default='lr',help='victim model type: SVM or 
 # ol: target classifier is from the adapttive attack, kkt: target is from kkt attack, real: actual classifier, compare: compare performance
 # of kkt attack and adaptive attack using same stop criteria
 parser.add_argument('--target_model', default='all',help='set your target classifier, options: kkt, ol, real, compare, all')
-parser.add_argument('--dataset', default='adult', choices=['adult','mnist_17','2d_toy','dogfish', 'loan', 'compas'])
+parser.add_argument('--dataset', default='adult', choices=['adult','mnist_17','2d_toy','dogfish', 'loan', 'compas', 'synthetic'])
 parser.add_argument('--poison_whole',action="store_true",help='if true, attack is indiscriminative attack')
 
 # some params related to online algorithm, use the default
@@ -49,6 +49,7 @@ parser.add_argument('--fixed_budget',default=0,type=int,help='if > 0, then run t
 parser.add_argument('--require_acc',action="store_true",help='if true, terminate the algorithm when the acc requirement is achieved')
 parser.add_argument('--subpop_type', default='cluster', choices=['cluster', 'feature', 'random'], help='subpopulaton type: cluster or feature')
 parser.add_argument('--no_kkt', action="store_true", help='if true, does not run the kkt attack')
+parser.add_argument('--sv_im_models', action="store_true", help='if true, saves intermediate poisoned models')
 
 args = parser.parse_args()
 
@@ -98,7 +99,7 @@ elif dataset_name == 'dogfish':
         valid_theta_errs = [0.1,0.2,0.3]
     else:
         valid_theta_errs = [0.9]
-elif dataset_name in ['loan', 'compas']:
+elif dataset_name in ['loan', 'compas', 'synthetic']:
     if args.model_type == 'lr':
         args.incre_tol_par = 0.05
     else:
@@ -150,7 +151,7 @@ if args.dataset == "2d_toy":
     x_lim_tuples = [x_pos_tuple,x_neg_tuple]
     print("max values of the features of the chosen dataset:")
     print(x_pos_min,x_pos_max,x_neg_min,x_neg_max)
-elif args.dataset in ["adult","mnist_17","loan", 'compas']:
+elif args.dataset in ["adult","mnist_17","loan", 'compas', 'synthetic']:
     x_pos_tuple = (0,1)
     x_neg_tuple = (0,1)
     x_lim_tuples = [x_pos_tuple,x_neg_tuple]
@@ -274,7 +275,6 @@ for valid_theta_err in valid_theta_errs:
         # for subpop descriptions
         trn_desc_fname = 'files/data/{}_trn_{}_desc.csv'.format(dataset_name, subpop_type)
         trn_df = pd.read_csv(trn_desc_fname)
-        trn_df['Num Poisons'] = 0
     elif args.target_model == "kkt":
         kkt_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/{}/kkt_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
         kkt_lower_bound_writer = csv.writer(kkt_lower_bound_file, delimiter=str(' '))
@@ -285,7 +285,6 @@ for valid_theta_err in valid_theta_errs:
         # for subpop descriptions
         trn_desc_fname = 'files/data/{}_trn_{}_desc.csv'.format(dataset_name, subpop_type)
         trn_df = pd.read_csv(trn_desc_fname)
-        trn_df['Num Poisons'] = 0
     elif args.target_model == "ol":
         ol_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/{}/ol_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
         ol_lower_bound_writer = csv.writer(ol_lower_bound_file, delimiter=str(' '))
@@ -477,10 +476,13 @@ for valid_theta_err in valid_theta_errs:
         collat_model.fit(trn_nsub_x, trn_nsub_y)
 
         avg_importance = np.linalg.norm(collat_model.coef_ - curr_model.coef_) / trn_sub_x.shape[0]
+        # avg_dist_to_dec_bound = np.mean(curr_model.decision_function(trn_sub_x) / np.linalg.norm(curr_mode.coef_))
+        avg_dist_to_dec_bound = np.mean(dist_to_boundary(curr_model.coef_.T, curr_model.intercept_, trn_sub_x))
 
         # default setting for target model is the actual model
         target_model.coef_= np.array([best_target_theta])
         target_model.intercept_ = np.array([best_target_bias])
+        model_prate = np.mean(target_model.predict(trn_sub_x) == 1)
         ##### Start the evaluation of different target classifiers #########
         if args.target_model == "real" or args.target_model == "all":
             print("------- Use Actual Target model as Target Model -----")
@@ -493,8 +495,8 @@ for valid_theta_err in valid_theta_errs:
                 print("[Sanity Real] Acc of current model:",curr_model.score(X_test,y_test),curr_model.score(X_train,y_train))
 
                 online_poisons_x, online_poisons_y, best_lower_bound, conser_lower_bound, best_max_loss_x,\
-                best_max_loss_y, ol_tol_par, target_poison_max_losses, current_total_losses,\
-                ol_tol_params, max_loss_diffs_reg, lower_bounds, online_acc_scores,norm_diffs = incre_online_learning(X_train,
+                best_max_loss_y, ol_tol_par, target_poison_max_losses, current_total_losses, ol_tol_params, \
+                max_loss_diffs_reg, lower_bounds, online_acc_scores,norm_diffs, im_models = incre_online_learning(X_train,
                                                                                         y_train,
                                                                                         X_test,
                                                                                         y_test,
@@ -559,7 +561,12 @@ for valid_theta_err in valid_theta_errs:
                         lower_bounds = lower_bounds,
                         ol_tol_params = ol_tol_params,
                         online_acc_scores = np.array(online_acc_scores),
-                        norm_diffs = norm_diffs
+                        norm_diffs = norm_diffs,
+                        im_models = im_models,
+                        trn_sbcl = trn_sbcl,
+                        tst_sbcl = tst_sbcl,
+                        trn_non_sbcl = trn_non_sbcl,
+                        tst_non_sbcl = tst_non_sbcl
                         )
             else:
                 if args.poison_whole:
@@ -589,7 +596,8 @@ for valid_theta_err in valid_theta_errs:
 
             # write to subpop description info
             print('subpop {} used {} poisons, subpop acc = {:.3f}, target acc = {:.3f}'.format(subpop_ind, len(online_poisons_y), train_subpop_acc, train_target_acc))
-            print('poisoned model accuracy on subpop: {:.3f}'.format(model_p_online.score(trn_sub_x, trn_sub_y)))
+            print('poisoned model accuracy on trn subpop: {:.3f}'.format(model_p_online.score(trn_sub_x, trn_sub_y)))
+            print('poisoned model accuracy on tst subpop: {:.3f}'.format(model_p_online.score(tst_sub_x, tst_sub_y)))
             trn_df.loc[subpop_ind, 'Clean Overall Acc'] = train_all
             trn_df.loc[subpop_ind, 'Clean Subpop Acc'] = train_subpop_acc
             trn_df.loc[subpop_ind, 'Clean Target Acc'] = train_target_acc
@@ -604,6 +612,9 @@ for valid_theta_err in valid_theta_errs:
             trn_df.loc[subpop_ind, 'Model Eucl. Distance'] = attack_euc_distance
             trn_df.loc[subpop_ind, 'Generalizability'] = generalizability
             trn_df.loc[subpop_ind, 'Avg Importance'] = avg_importance
+            trn_df.loc[subpop_ind, 'Avg D2DB'] = avg_dist_to_dec_bound
+            trn_df.loc[subpop_ind, 'Best Lower Bound'] = best_lower_bound
+            trn_df.loc[subpop_ind, 'Model Positive Rate'] = model_prate
 
             if not args.no_kkt:
                 ###  perform the KKT attack with same number of poisned points of our Adaptive attack ###

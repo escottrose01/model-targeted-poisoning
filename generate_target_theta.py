@@ -13,6 +13,7 @@ import argparse
 from datasets import load_dataset
 import os
 import scipy
+import pandas as pd
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_type',default='lr',help='victim model type: SVM or rlogistic regression')
@@ -42,7 +43,7 @@ elif args.dataset == "2d_toy":
 elif args.dataset == "dogfish":
     subpop = args.subpop
     args.weight_decay = 1.1
-elif args.dataset in ['loan', 'compas']:
+elif args.dataset in ['loan', 'compas', 'synthetic']:
     subpop = True
 else:
     subpop = args.subpop
@@ -58,7 +59,7 @@ else:
 prune_theta = True
 
 dataset_name = args.dataset
-assert dataset_name in ['adult','mnist_17','2d_toy','dogfish', 'loan', 'compas']
+assert dataset_name in ['adult','mnist_17','2d_toy','dogfish', 'loan', 'compas', 'synthetic']
 
 subpop_type = args.subpop_type
 
@@ -74,23 +75,7 @@ print(np.amax(Y_train),np.amin(Y_train))
 
 max_iter = -1
 
-# quantile_tape = [0.05, 0.07, 0.10, 0.12, 0.15, 0.18, 0.20, 0.22, 0.25]
-# rep_tape = [1, 2, 3, 5, 8, 12, 18, 25]
-
 fit_intercept = True
-# def svm_model(**kwargs):
-#     return svm.LinearSVC(loss='hinge', **kwargs)
-
-# # hinge loss and error computation
-# def calculate_loss(margins):
-#     losses = np.amax(1-margins, 0)
-#     errs = (margins < 0) + 0.5 * (margins == 0)
-#     return np.sum(losses)/len(margins), np.sum(errs)/len(errs)
-
-# # computer distance to decison boundary, used for subpop target generation
-# def dist_to_boundary(theta,bias,data):
-#     abs_vals = np.abs(np.dot(data,theta) + bias)
-#     return abs_vals/(np.linalg.norm(theta,ord = 2))
 
 C = 1.0 / (X_train.shape[0] * args.weight_decay)
 model = ScikitModel(
@@ -103,6 +88,7 @@ model = ScikitModel(
 model.fit(X_train, Y_train)
 orig_theta = model.coef_.reshape(-1)
 orig_bias = model.intercept_
+
 # calculate the clean model acc
 train_acc = model.score(X_train,Y_train)
 test_acc = model.score(X_test,Y_test)
@@ -576,6 +562,7 @@ else:
     subpop_inds, subpop_cts = np.unique(subpops_flattened, return_counts=True)
 
     trn_sub_accs = []
+    n_bad = 0
     for i in range(len(subpop_cts)):
         subpop_ind, subpop_ct = subpop_inds[i], subpop_cts[i]
         print("subpop ID and Size:", subpop_ind, subpop_ct)
@@ -589,8 +576,14 @@ else:
         tst_nsub_x, tst_nsub_y = X_test[tst_non_sbcl], Y_test[tst_non_sbcl]
         trn_sub_x, trn_sub_y  = X_train[trn_sbcl], Y_train[trn_sbcl]
         trn_nsub_x, trn_nsub_y = X_train[trn_non_sbcl], Y_train[trn_non_sbcl]
-        tst_sub_acc = model.score(tst_sub_x, tst_sub_y)
-        trn_sub_acc = model.score(trn_sub_x, trn_sub_y)
+        if len(tst_sub_y) == 0 or len(trn_sub_y) == 0:
+            tst_sub_acc = float('inf')
+            trn_sub_acc = float('inf')
+            n_bad += 1
+        else:
+            tst_sub_acc = model.score(tst_sub_x, tst_sub_y)
+            trn_sub_acc = model.score(trn_sub_x, trn_sub_y)
+
         # check the target and collateral damage info
         print("----------Subpop Indx: {} ------".format(subpop_ind))
         print('Clean Train Target Acc : %.3f' % trn_sub_acc)
@@ -600,11 +593,13 @@ else:
         print("shape of subpopulations",trn_sub_x.shape,trn_nsub_x.shape,tst_sub_x.shape,tst_nsub_x.shape)
         trn_sub_accs.append(trn_sub_acc)
 
-    print(subpop_inds, subpop_cts)
-    # print(tst_sub_accs)
     # sort the subpop based on tst acc and choose 5 highest ones
     if args.all_subpops:
-        highest_5_inds = range(len(trn_sub_accs))
+        # don't attack empty subpops
+        if n_bad > 0:
+            highest_5_inds = np.argsort(trn_sub_accs)[:-n_bad]
+        else:
+            highest_5_inds = range(len(subpop_cts))
     elif args.dataset in ['adult','dogfish']:
         highest_5_inds = np.argsort(trn_sub_accs)[-3:]
     elif args.dataset == '2d_toy':
@@ -622,6 +617,7 @@ else:
         valid_theta_errs = [0.9]
     else:
         valid_theta_errs = [1.0]
+
     # repitition of the points
     if dataset_name == 'compas':
         quantile_tape = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55,0.8,1.0]
@@ -633,10 +629,15 @@ else:
         quantile_tape = [0.40, 0.45, 0.50, 0.55,0.8,1.0]
         rep_tape = [1, 2, 3, 5, 8, 10, 12, 15, 20, 25, 30,40,50,80,100]
 
+    # for subpop descriptions
+    trn_desc_fname = 'files/data/{}_trn_{}_desc.csv'.format(dataset_name, subpop_type)
+    trn_df = pd.read_csv(trn_desc_fname)
+
     for valid_theta_err in valid_theta_errs:
         print("#---------Selected Subpops------#")
         for i in range(len(subpop_cts)):
             subpop_ind, subpop_ct = subpop_inds[i], subpop_cts[i]
+            trn_df.loc[subpop_ind, 'Flip Num Poisons'] = float('inf')
             print("cluster ID and Size:",subpop_ind,subpop_ct)
             thetas = []
             biases = []
@@ -658,7 +659,7 @@ else:
             trn_nsub_x, trn_nsub_y = X_train[trn_non_sbcl], Y_train[trn_non_sbcl]
             tst_sub_acc = model.score(tst_sub_x, tst_sub_y)
             # make sure subpop is from class -1
-            if dataset_name in ['adult', 'loan', 'compas']:
+            if dataset_name in ['adult', 'loan', 'compas', 'synthetic']:
                 assert (tst_sub_y == -1).all()
                 assert (trn_sub_y == -1).all()
             else:
@@ -768,6 +769,8 @@ else:
                     acc_threshold = 1 - valid_theta_err
 
                     if tst_sub_acc <= acc_threshold:
+                        if len(Y_tar) < trn_df.loc[subpop_ind, 'Flip Num Poisons']:
+                            trn_df.loc[subpop_ind, 'Flip Num Poisons'] = len(Y_tar)
                         if train_loss < min_train_loss:
                             min_train_loss = train_loss
                             best_theta = np.copy(target_theta)
@@ -840,3 +843,4 @@ else:
                 file_all = open('files/target_classifiers/{}/{}/{}/orig_thetas_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type, int(subpop_ind),valid_theta_err), 'wb')
                 pickle.dump(data_all, file_all,protocol=2)
                 file_all.close()
+    trn_df.to_csv('files/data/{}_trn_{}_desc.csv'.format(dataset_name, subpop_type), index=False)
