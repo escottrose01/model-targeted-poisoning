@@ -1,18 +1,24 @@
 #!/bin/bash
 
 seps=($(seq 0.0 0.25 3.0))
+# seps=($(seq 0.0 0.25 0.0))
 flips=($(seq 0.0 0.1 1.0))
-seeds=($(seq 1 10))
+# flips=($(seq 0.0 0.1 0.0))
+seeds=($(seq 1 1))
+# seeds=($(seq 1 10))
 
-mkdir -p files/subpop_descs
-mkdir -p files/subpop_descs/synthetic
+read -p 'enter min dist_to_boundary: ' min_d2db
 
-for class_sep in "${seps[@]}"; do
-  for flip_y in "${flips[@]}"; do
-    for dset_seed in "${seeds[@]}"; do
-      dst_fname="files/subpop_descs/synthetic/sep${class_sep}-flip${flip_y}-seed${dset_seed}.csv"
+mkdir -p "files/subpop_descs/"
+mkdir -p "files/subpop_descs/synthetic"
+mkdir -p "files/subpop_descs/synthetic/min_d2db-${min_d2db}"
+
+for dset_seed in "${seeds[@]}"; do
+  for class_sep in "${seps[@]}"; do
+    for flip_y in "${flips[@]}"; do
+      dst_fname="files/subpop_descs/synthetic/min_d2db-${min_d2db}/sep${class_sep}-flip${flip_y}-seed${dset_seed}.csv"
       if !(test -f "${dst_fname}"); then
-        echo "running experiment with class_sep=${class_sep}, flip_y=${flip_y}, seed=${dset_seed}"
+        echo "running experiment with class_sep=${class_sep}, flip_y=${flip_y}, seed=${dset_seed}, d2db = ${min_d2db}"
         # clear the stage
         rm -rf files/kkt_models \
           files/online_models \
@@ -40,7 +46,7 @@ for class_sep in "${seps[@]}"; do
         fi
 
         python generate_target_theta.py --dataset synthetic --model_type svm \
-          --subpop_type cluster --weight_decay 1e-5 --all_subpops > /dev/null 2>&1
+          --subpop_type cluster --weight_decay 1e-5 --min_d2db $min_d2db --all_subpops > /dev/null 2>&1
         if [ $? == 0 ]; then
           echo "generated target theta"
         else
@@ -61,12 +67,12 @@ for class_sep in "${seps[@]}"; do
         # move everything into a safe location
         mv "files/data/synthetic_trn_cluster_desc.csv" $dst_fname
       else
-        echo "experiment on class_sep=${class_sep}, flip_y=${flip_y}, seed=${dset_seed} already complete, skipping"
+        echo "experiment on class_sep=${class_sep}, flip_y=${flip_y}, seed=${dset_seed}, d2db = ${min_d2db} already complete, skipping"
       fi
     done
   done
 done
 
 # after finishing everything, combine data into single file
-head -n 1 files/subpop_descs/synthetic/sep0.00-flip0.0-seed1.csv > files/subpop_descs/synthetic.csv # gets the headers
-tail -n+2 -q files/subpop_descs/synthetic/*.csv >> files/subpop_descs/synthetic.csv # gets the data
+head -n 1 "files/subpop_descs/synthetic/min_d2db-${min_d2db}/sep0.00-flip0.0-seed1.csv" > "files/subpop_descs/synthetic-d2db-${min_d2db}.csv" # gets the headers
+tail -n+2 -q files/subpop_descs/synthetic/min_d2db-${min_d2db}/*.csv >> "files/subpop_descs/synthetic-d2db-${min_d2db}.csv" # gets the data

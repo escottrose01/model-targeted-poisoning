@@ -41,15 +41,17 @@ parser.add_argument('--poison_whole',action="store_true",help='if true, attack i
 parser.add_argument('--online_alg_criteria',default='max_loss',help='stop criteria of online alg: max_loss or norm')
 parser.add_argument('--incre_tol_par',default=1e-2,type=float,help='stop value of online alg: max_loss or norm')
 parser.add_argument('--weight_decay',default=0.09,type=float,help='weight decay for regularizers')
-parser.add_argument('--err_threshold',default=1.0,type=float,help='target error rate')
+parser.add_argument('--err_threshold',default=None,type=float,help='target error rate')
 parser.add_argument('--rand_seed',default=12,type=int,help='random seed')
 parser.add_argument('--repeat_num',default=1,type=int,help='repeat num of maximum loss diff point')
 parser.add_argument('--improved',action="store_true",help='if true, target classifier is obtained through improved process')
 parser.add_argument('--fixed_budget',default=0,type=int,help='if > 0, then run the attack for fixed number of points')
+parser.add_argument('--budget_limit', default=0, type=int, help='if > 0, then terminate attack early if iterations exceeds value')
 parser.add_argument('--require_acc',action="store_true",help='if true, terminate the algorithm when the acc requirement is achieved')
 parser.add_argument('--subpop_type', default='cluster', choices=['cluster', 'feature', 'random'], help='subpopulaton type: cluster or feature')
 parser.add_argument('--no_kkt', action="store_true", help='if true, does not run the kkt attack')
 parser.add_argument('--sv_im_models', action="store_true", help='if true, saves intermediate poisoned models')
+parser.add_argument('--target_valid_theta_err', default=None, type=float, help='classification error from target model generation')
 
 args = parser.parse_args()
 
@@ -106,6 +108,9 @@ elif dataset_name in ['loan', 'compas', 'synthetic']:
         args.incre_tol_par = 0.01
 
     valid_theta_errs = [1.0]
+
+if args.err_threshold is not None:
+    valid_theta_errs = [args.err_threshold]
 
 if args.model_type == 'svm':
     print("chosen model: svm")
@@ -261,6 +266,11 @@ X_train_cp, y_train_cp = np.copy(X_train), np.copy(y_train)
 for valid_theta_err in valid_theta_errs:
     print("Attack Target Classifiers with Expected Error Rate:",valid_theta_err)
     args.err_threshold = valid_theta_err
+    if args.target_valid_theta_err is None:
+        target_valid_theta_err = valid_theta_err
+    else:
+        target_valid_theta_err = args.target_valid_theta_err
+
     # open the files to write key info
     if args.target_model == "all":
         kkt_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/{}/kkt_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
@@ -355,16 +365,16 @@ for valid_theta_err in valid_theta_errs:
         # load target classifiers
         if not args.improved:
             if args.poison_whole:
-                fname = open('files/target_classifiers/{}/{}/{}/orig_best_theta_whole_err-{}'.format(dataset_name,args.model_type, subpop_type, valid_theta_err), 'rb')
+                fname = open('files/target_classifiers/{}/{}/{}/orig_best_theta_whole_err-{}'.format(dataset_name,args.model_type, subpop_type, target_valid_theta_err), 'rb')
 
             else:
-                fname = open('files/target_classifiers/{}/{}/{}/orig_best_theta_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type, subpop_ind,valid_theta_err), 'rb')
+                fname = open('files/target_classifiers/{}/{}/{}/orig_best_theta_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type, subpop_ind,target_valid_theta_err), 'rb')
         else:
             if args.poison_whole:
-                fname = open('files/target_classifiers/{}/{}/{}/improved_best_theta_whole_err-{}'.format(dataset_name,args.model_type, subpop_type,valid_theta_err), 'rb')
+                fname = open('files/target_classifiers/{}/{}/{}/improved_best_theta_whole_err-{}'.format(dataset_name,args.model_type, subpop_type,target_valid_theta_err), 'rb')
 
             else:
-                fname = open('files/target_classifiers/{}/{}/{}/improved_best_theta_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type,subpop_ind,valid_theta_err), 'rb')
+                fname = open('files/target_classifiers/{}/{}/{}/improved_best_theta_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type,subpop_ind,target_valid_theta_err), 'rb')
         f = pickle.load(fname)
         best_target_theta = f['thetas']
         best_target_bias = f['biases']
@@ -478,6 +488,7 @@ for valid_theta_err in valid_theta_errs:
         avg_importance = np.linalg.norm(collat_model.coef_ - curr_model.coef_) / trn_sub_x.shape[0]
         # avg_dist_to_dec_bound = np.mean(curr_model.decision_function(trn_sub_x) / np.linalg.norm(curr_mode.coef_))
         avg_dist_to_dec_bound = np.mean(dist_to_boundary(curr_model.coef_.T, curr_model.intercept_, trn_sub_x))
+        max_dist_to_dec_bound = np.max(dist_to_boundary(curr_model.coef_.T, curr_model.intercept_, trn_sub_x))
 
         # default setting for target model is the actual model
         target_model.coef_= np.array([best_target_theta])
@@ -566,7 +577,9 @@ for valid_theta_err in valid_theta_errs:
                         trn_sbcl = trn_sbcl,
                         tst_sbcl = tst_sbcl,
                         trn_non_sbcl = trn_non_sbcl,
-                        tst_non_sbcl = tst_non_sbcl
+                        tst_non_sbcl = tst_non_sbcl,
+                        theta_p = np.array([best_target_theta]),
+                        bias_p = np.array([best_target_bias])
                         )
             else:
                 if args.poison_whole:
@@ -610,9 +623,11 @@ for valid_theta_err in valid_theta_errs:
             trn_df.loc[subpop_ind, 'Poisoned Overall Loss'] = pois_all_loss
             trn_df.loc[subpop_ind, 'Model Cosine Similarity'] = cosine_sim
             trn_df.loc[subpop_ind, 'Model Eucl. Distance'] = attack_euc_distance
-            trn_df.loc[subpop_ind, 'Generalizability'] = generalizability
+            trn_df.loc[subpop_ind, 'Generalizability'] = generalizability # theoretical target model, >= valid_theta_err
+            trn_df.loc[subpop_ind, 'Attack Success'] = 1. - model_p_online.score(tst_sub_x, tst_sub_y) # model induced by poison points, may be < valid_theta_err
             trn_df.loc[subpop_ind, 'Avg Importance'] = avg_importance
             trn_df.loc[subpop_ind, 'Avg D2DB'] = avg_dist_to_dec_bound
+            trn_df.loc[subpop_ind, 'Max D2DB'] = max_dist_to_dec_bound
             trn_df.loc[subpop_ind, 'Best Lower Bound'] = best_lower_bound
             trn_df.loc[subpop_ind, 'Model Positive Rate'] = model_prate
 

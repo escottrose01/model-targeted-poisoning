@@ -806,6 +806,8 @@ def incre_online_learning(X_train,
             stop_cond = tst_sub_acc1 > 1-args.err_threshold
         else:
             stop_cond = current_tol_par > ol_lr_threshold
+        if args.budget_limit is not None:
+            stop_cond = stop_cond and (num_iter < args.budget_limit)
     else:
         stop_cond = num_iter < args.fixed_budget
         print("runing with fixed number of poisoned points,",args.fixed_budget)
@@ -909,15 +911,16 @@ def incre_online_learning(X_train,
                         x_lim_tuples,
                         args)
 
-        if target_model_type == 'real':
-            if lower_bound_real > target_num_checker:
-                print("something wrong with the lower bound for target model generated from heuristic method!")
-                sys.exit(0)
-
-        if target_model_type in ["kkt","ol"] and args.model_type != "lr":
-            if lower_bound > attack_num_poison:
-                print("something wrong with the lower bound of classifier generated from our attack or KKT attack!")
-                sys.exit(0)
+        # I believe this should only be checked if err_thresh = 1?
+        # if target_model_type == 'real':
+        #     if lower_bound_real > target_num_checker:
+        #         print("something wrong with the lower bound for target model generated from heuristic method!")
+        #         sys.exit(0)
+        #
+        # if target_model_type in ["kkt","ol"] and args.model_type != "lr":
+        #     if lower_bound > attack_num_poison:
+        #         print("something wrong with the lower bound of classifier generated from our attack or KKT attack!")
+        #         sys.exit(0)
 
         ### update the model weights accordingly
         tmp_x = np.concatenate((tmp_x,x_poisons),axis=0)
@@ -935,6 +938,7 @@ def incre_online_learning(X_train,
                     random_state=args.rand_seed,
                     verbose=False,
                     max_iter = 1000)
+                    # max_iter=10000)
         curr_model.fit(tmp_x, tmp_y)
         theta_ol = curr_model.coef_
         bias_ol = curr_model.intercept_
@@ -1030,6 +1034,8 @@ def incre_online_learning(X_train,
                 stop_cond = tst_sub_acc1 > 1-args.err_threshold
             else:
                 stop_cond = current_tol_par > ol_lr_threshold
+            if args.budget_limit is not None:
+                stop_cond = stop_cond and (num_iter < args.budget_limit)
         else:
             stop_cond = num_iter < args.fixed_budget
     # complete the last iteration info of the our attack

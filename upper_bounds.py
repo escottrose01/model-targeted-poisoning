@@ -336,7 +336,7 @@ class TwoClassKKT(object):
         # creating variables with shape of "d"
         # need to deal with some binary feature attibutes
         if dataset_name == "adult":
-            # ---- adult ----- 
+            # ---- adult -----
             # attributes 0-3 are continuous and represent: "age", "capital-gain", "capital-loss", "hours-per-week"
             # attributes 4-11 are binary representing the work class.
             # attributes 12-26: education background
@@ -374,11 +374,11 @@ class TwoClassKKT(object):
             self.cvx_race = cvx.Parameter(d-4, value = arr)
         else:
             self.cvx_x_pos = cvx.Variable(d)
-            self.cvx_x_neg = cvx.Variable(d) 
+            self.cvx_x_neg = cvx.Variable(d)
 
         self.cvx_g = cvx.Parameter(d)
         self.cvx_theta = cvx.Parameter(d)
-        self.cvx_bias = cvx.Parameter(1)           
+        self.cvx_bias = cvx.Parameter(1)
         self.cvx_epsilon_pos = cvx.Parameter(1)
         self.cvx_epsilon_neg = cvx.Parameter(1)
 
@@ -407,8 +407,8 @@ class TwoClassKKT(object):
                      self.cvx_epsilon_neg * cvx.vstack(self.cvx_x_neg_real,self.cvx_x_neg_binary) == self.cvx_err,
                 cvx_dot(self.cvx_theta, cvx.vstack(self.cvx_x_pos_real,self.cvx_x_pos_binary)) + self.cvx_bias < 1, # margin constraint, ideally should be 1
                 -(cvx_dot(self.cvx_theta, cvx.vstack(self.cvx_x_neg_real,self.cvx_x_neg_binary)) + self.cvx_bias) < 1 , # ideally should be 1
-            ]     
-        else:       
+            ]
+        else:
             if model_type == 'svm':
                 self.constraints = [
                     self.cvx_g - self.cvx_epsilon_pos * self.cvx_x_pos + self.cvx_epsilon_neg * self.cvx_x_neg == self.cvx_err,
@@ -444,13 +444,13 @@ class TwoClassKKT(object):
         if dataset_name in ['mnist_17', 'enron', 'imdb']:
             self.constraints.append(self.cvx_x_pos >= 0)
             self.constraints.append(self.cvx_x_neg >= 0)
-        
+
         # additional constraints on synthetic dataset
         if x_pos_tuple:
             assert x_neg_tuple != None
             self.x_pos_min,self.x_pos_max = x_pos_tuple
             self.x_neg_min,self.x_neg_max = x_neg_tuple
-            
+
             if dataset_name == 'adult':
                 self.constraints.append(self.cvx_x_pos_real >= self.x_pos_min)
                 self.constraints.append(self.cvx_x_pos_real <= self.x_pos_max)
@@ -478,14 +478,14 @@ class TwoClassKKT(object):
             self.constraints.append(cvx_dot(self.cvx_education, self.cvx_x_pos_binary) == 1)
             self.constraints.append(cvx_dot(self.cvx_education, self.cvx_x_neg_binary) == 1)
             self.constraints.append(cvx_dot(self.cvx_martial, self.cvx_x_pos_binary) == 1)
-            self.constraints.append(cvx_dot(self.cvx_martial, self.cvx_x_neg_binary) == 1)            
+            self.constraints.append(cvx_dot(self.cvx_martial, self.cvx_x_neg_binary) == 1)
             self.constraints.append(cvx_dot(self.cvx_occupation , self.cvx_x_pos_binary) == 1)
             self.constraints.append(cvx_dot(self.cvx_occupation , self.cvx_x_neg_binary) == 1)
             self.constraints.append(cvx_dot(self.cvx_relationship, self.cvx_x_pos_binary) == 1)
             self.constraints.append(cvx_dot(self.cvx_relationship, self.cvx_x_neg_binary) == 1)
             self.constraints.append(cvx_dot(self.cvx_race, self.cvx_x_pos_binary) == 1)
             self.constraints.append(cvx_dot(self.cvx_race, self.cvx_x_neg_binary) == 1)
-            
+
         # If we pass in X, do the LP/integer constraint
         if (X is not None) and (dataset_name in ['enron', 'imdb']):
             if sparse.issparse(X):
@@ -581,7 +581,7 @@ class TwoClassKKT(object):
         self.cvx_epsilon_pos.value = epsilon_pos
         self.cvx_epsilon_neg.value = epsilon_neg
 
-        self.prob.solve(verbose=verbose, solver=cvx.GUROBI)          # max_iters=1000
+        self.prob.solve(verbose=verbose, solver=cvx.GUROBI, timeLimit=60*1)          # max_iters=1000
         print('***** ', epsilon_pos, epsilon_neg, self.prob.value)
 
         best_value = self.prob.value
@@ -608,46 +608,46 @@ class TwoClassKKT(object):
             assert np.amax(best_x_neg) <= (self.x_neg_max + float(self.x_neg_max)/100)
             assert np.amin(best_x_neg) >= (self.x_neg_min - np.abs(float(self.x_neg_min))/100)
 
-        # #plan for handling integers by relaxing and then rounding to largest value 
+        # #plan for handling integers by relaxing and then rounding to largest value
         # if self.dataset == 'adult':
         #     # make sure every binary feature is correctly found
         #     max_idx = np.argmax(best_x_pos[4:12])
         #     best_x_pos[4:12] = 0
-        #     best_x_pos[4:12][max_idx] = 1 
+        #     best_x_pos[4:12][max_idx] = 1
         #     max_idx = np.argmax(best_x_pos[12:27])
         #     best_x_pos[12:27] = 0
-        #     best_x_pos[12:27][max_idx] = 1 
+        #     best_x_pos[12:27][max_idx] = 1
         #     max_idx = np.argmax(best_x_pos[27:33])
         #     best_x_pos[27:33] = 0
-        #     best_x_pos[27:33][max_idx] = 1 
+        #     best_x_pos[27:33][max_idx] = 1
         #     max_idx = np.argmax(best_x_pos[33:47])
         #     best_x_pos[33:47] = 0
-        #     best_x_pos[33:47][max_idx] = 1             
+        #     best_x_pos[33:47][max_idx] = 1
         #     max_idx = np.argmax(best_x_pos[47:52])
         #     best_x_pos[47:52] = 0
-        #     best_x_pos[47:52][max_idx] = 1 
+        #     best_x_pos[47:52][max_idx] = 1
         #     max_idx = np.argmax(best_x_pos[52:57])
         #     best_x_pos[52:57] = 0
-        #     best_x_pos[52:57][max_idx] = 1 
+        #     best_x_pos[52:57][max_idx] = 1
 
         #     max_idx = np.argmax(best_x_neg[4:12])
         #     best_x_neg[4:12] = 0
-        #     best_x_neg[4:12][max_idx] = 1 
+        #     best_x_neg[4:12][max_idx] = 1
         #     max_idx = np.argmax(best_x_neg[12:27])
         #     best_x_neg[12:27] = 0
-        #     best_x_neg[12:27][max_idx] = 1 
+        #     best_x_neg[12:27][max_idx] = 1
         #     max_idx = np.argmax(best_x_neg[27:33])
         #     best_x_neg[27:33] = 0
-        #     best_x_neg[27:33][max_idx] = 1 
+        #     best_x_neg[27:33][max_idx] = 1
         #     max_idx = np.argmax(best_x_neg[33:47])
         #     best_x_neg[33:47] = 0
-        #     best_x_neg[33:47][max_idx] = 1             
+        #     best_x_neg[33:47][max_idx] = 1
         #     max_idx = np.argmax(best_x_neg[47:52])
         #     best_x_neg[47:52] = 0
-        #     best_x_neg[47:52][max_idx] = 1 
+        #     best_x_neg[47:52][max_idx] = 1
         #     max_idx = np.argmax(best_x_neg[52:57])
         #     best_x_neg[52:57] = 0
-        #     best_x_neg[52:57][max_idx] = 1 
+        #     best_x_neg[52:57][max_idx] = 1
 
         # print("sannity check for best x_pos and x_neg:",best_x_pos,best_x_neg)
 

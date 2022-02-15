@@ -23,6 +23,10 @@ parser.add_argument('--improved',action="store_true",help='if true, target class
 parser.add_argument('--subpop',action="store_true",help='if true, subpopulation attack will be performed')
 parser.add_argument('--subpop_type', default='cluster', choices=['cluster', 'feature', 'random'], help='subpopulaton type: cluster, feature, or random')
 parser.add_argument('--all_subpops', action="store_true", help='if true, generates models for all subpopulations')
+parser.add_argument('--min_d2db', default=None, type=float, help='acceptable minimum distance to decision boundary')
+parser.add_argument('--interp', default=None, type=float, help='linear interpolation between clean and target model')
+parser.add_argument('--valid_theta_err', default=None, type=float, help='minimum target model classification error')
+parser.add_argument('--selection_criteria', default='min_collateral', choices=['min_collateral', 'max_loss'], help='target model choice criteria')
 
 args = parser.parse_args()
 
@@ -577,8 +581,8 @@ else:
         trn_sub_x, trn_sub_y  = X_train[trn_sbcl], Y_train[trn_sbcl]
         trn_nsub_x, trn_nsub_y = X_train[trn_non_sbcl], Y_train[trn_non_sbcl]
         if len(tst_sub_y) == 0 or len(trn_sub_y) == 0:
-            tst_sub_acc = float('inf')
-            trn_sub_acc = float('inf')
+            tst_sub_acc = -float('inf')
+            trn_sub_acc = -float('inf')
             n_bad += 1
         else:
             tst_sub_acc = model.score(tst_sub_x, tst_sub_y)
@@ -595,15 +599,13 @@ else:
 
     # sort the subpop based on tst acc and choose 5 highest ones
     if args.all_subpops:
-        # don't attack empty subpops
-        if n_bad > 0:
-            highest_5_inds = np.argsort(trn_sub_accs)[:-n_bad]
-        else:
-            highest_5_inds = range(len(subpop_cts))
+        highest_5_inds = np.argsort(trn_sub_accs)[n_bad:]
     elif args.dataset in ['adult','dogfish']:
         highest_5_inds = np.argsort(trn_sub_accs)[-3:]
     elif args.dataset == '2d_toy':
         highest_5_inds = np.argsort(trn_sub_accs)[-4:]
+    else:
+        highest_5_inds = np.argsort(trn_sub_accs)[-3:]
     subpop_inds = subpop_inds[highest_5_inds]
     subpop_cts = subpop_cts[highest_5_inds]
     print(subpop_inds, subpop_cts)
@@ -613,7 +615,9 @@ else:
         dataset_name, args.model_type, subpop_type)
     np.savetxt(cls_fname,np.array([subpop_inds,subpop_cts]))
 
-    if dataset_name == 'dogfish':
+    if args.valid_theta_err is not None:
+        valid_theta_errs = [args.valid_theta_err]
+    elif dataset_name == 'dogfish':
         valid_theta_errs = [0.9]
     else:
         valid_theta_errs = [1.0]
@@ -646,6 +650,7 @@ else:
             collat_errs = []
             # best_collat_acc = 0
             min_train_loss = 1e10
+            max_test_target_loss = 0
 
             tst_subpop_inds = np.array([np.any(v == subpop_ind) for v in tst_all_subpops])
             trn_subpop_inds = np.array([np.any(v == subpop_ind) for v in trn_all_subpops])
@@ -743,7 +748,7 @@ else:
                     train_losses.append(train_loss)
 
                     margins = tst_sub_y*(tst_sub_x.dot(target_theta) + target_bias)
-                    _, test_error = calculate_loss(margins)
+                    test_target_loss, test_error = calculate_loss(margins)
                     test_errs.append(test_error)
 
                     thetas.append(target_theta)
@@ -771,19 +776,25 @@ else:
                     if tst_sub_acc <= acc_threshold:
                         if len(Y_tar) < trn_df.loc[subpop_ind, 'Flip Num Poisons']:
                             trn_df.loc[subpop_ind, 'Flip Num Poisons'] = len(Y_tar)
-                        if train_loss < min_train_loss:
-                            min_train_loss = train_loss
-                            best_theta = np.copy(target_theta)
-                            best_bias = np.copy(target_bias[0])
-                            best_num_poisons = np.copy(len(Y_tar))
-                            print("updated lowest train loss is:",train_loss)
+                        if args.selection_criteria == 'min_collateral':
+                            if train_loss < min_train_loss:
+                                min_train_loss = train_loss
+                                best_theta = np.copy(target_theta)
+                                best_bias = np.copy(target_bias[0])
+                                best_num_poisons = np.copy(len(Y_tar))
+                                print("updated lowest train loss is:",train_loss)
+                        elif args.selection_criteria == 'max_loss':
+                            if test_target_loss > max_test_target_loss:
+                                max_test_target_loss = test_target_loss
+                                best_theta = np.copy(target_theta)
+                                best_bias = np.copy(target_bias[0])
+                                best_num_poisons = np.copy(len(Y_tar))
+                                print("updated lowest train loss is:",train_loss)
 
                     # if we never found a successful target model, try this:
                     if (best_theta is None) and (loss_quantile == quantile_tape[-1]) and (tar_rep == rep_tape_tmp[-1]):
                         assert tar_rep < 20000, "too many repetitions needed! giving up on subpop {}".format(subpop_ind)
                         rep_tape_tmp.append(2*rep_tape_tmp[-1])
-
-
 
             thetas = np.array(thetas)
             biases = np.array(biases)
@@ -793,7 +804,21 @@ else:
 
             assert best_theta is not None, 'Was not able to find satisfactory target model!'
 
+            # offset bias to satisfy min distance to boundary
+            # assumes goal is to make positive
+            norm_theta = np.linalg.norm(best_theta)
+            near = np.min((np.dot(trn_sub_x,best_theta) + best_bias) / norm_theta)
+            if args.min_d2db is not None and near < args.min_d2db:
+                best_bias += norm_theta * (args.min_d2db - near)
+                near = np.min(dist_to_boundary(best_theta, best_bias, trn_sub_x))
+            if args.interp is not None and args.interp > 0:
+                best_theta = args.interp*best_theta + (1. - args.interp)*orig_theta
+                best_bias = args.interp*best_bias + (1. - args.interp)*orig_bias
+
             print("Acc of best theta and bias:")
+            margins = tst_sub_y*(tst_sub_x.dot(best_theta) + best_bias)
+            test_loss, test_err = calculate_loss(margins)
+            print("Target Test Loss of best theta:", )
             margins = tst_sub_y*(tst_sub_x.dot(best_theta) + best_bias)
             _, test_err = calculate_loss(margins)
             print("Target Train Acc of best theta:",1-test_err)
