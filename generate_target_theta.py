@@ -88,7 +88,7 @@ model = ScikitModel(
     fit_intercept=fit_intercept,
     random_state=24,
     verbose=False,
-    max_iter = 1000)
+    max_iter = 10000)
 model.fit(X_train, Y_train)
 orig_theta = model.coef_.reshape(-1)
 orig_bias = model.intercept_
@@ -170,7 +170,7 @@ if not subpop:
                     fit_intercept=fit_intercept,
                     random_state=24,
                     verbose=False,
-                    max_iter = 1000)
+                    max_iter = 10000)
             model_p.fit(X_train_p,Y_train_p)
             target_theta, target_bias = model_p.coef_.reshape(-1), model_p.intercept_
             # train margin and loss
@@ -470,7 +470,7 @@ elif args.improved:
                         fit_intercept=fit_intercept,
                         random_state=24,
                         verbose=False,
-                        max_iter = 1000)
+                        max_iter = 10000)
 
                 model_p.fit(whole_x,whole_y)
                 pois_acc = model_p.score(X_test,Y_test)
@@ -722,7 +722,7 @@ else:
                             fit_intercept=fit_intercept,
                             random_state=24,
                             verbose=False,
-                            max_iter = 1000)
+                            max_iter = 10000)
                     model_p.fit(X_train_p,Y_train_p)
                     # plot the acc info
                     test_acc = model_p.score(X_test,Y_test)

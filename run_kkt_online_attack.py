@@ -52,6 +52,7 @@ parser.add_argument('--subpop_type', default='cluster', choices=['cluster', 'fea
 parser.add_argument('--no_kkt', action="store_true", help='if true, does not run the kkt attack')
 parser.add_argument('--sv_im_models', action="store_true", help='if true, saves intermediate poisoned models')
 parser.add_argument('--target_valid_theta_err', default=None, type=float, help='classification error from target model generation')
+parser.add_argument('--flush_freq', default=-1, type=int, help='frequency with which to flush output data to file (use for large subpop counts)')
 
 args = parser.parse_args()
 
@@ -64,6 +65,7 @@ use_slab = False
 use_loss = False
 use_l2 = False
 dataset_name = args.dataset
+flush_freq = args.flush_freq
 # if true, we generate target classifier using label flipping...
 if args.improved:
     target_gen_proc = 'improved'
@@ -217,7 +219,7 @@ model = ScikitModel(
             fit_intercept=fit_intercept,
             random_state=args.rand_seed,
             verbose=False,
-            max_iter=1000)
+            max_iter=32000)
 model.fit(X_train, y_train)
 
 # some models defined only to use as an instance of classification model
@@ -227,7 +229,7 @@ model_dumb = ScikitModel(
             fit_intercept=fit_intercept,
             random_state=args.rand_seed,
             verbose=False,
-            max_iter=1000)
+            max_iter=32000)
 model_dumb.fit(X_train, y_train)
 
 model_dumb1 = ScikitModel(
@@ -236,7 +238,7 @@ model_dumb1 = ScikitModel(
             fit_intercept=fit_intercept,
             random_state=args.rand_seed,
             verbose=False,
-            max_iter=1000)
+            max_iter=32000)
 model_dumb1.fit(X_train[0:2000], y_train[0:2000])
 
 # will be used as the model generated from the KKT attack
@@ -246,7 +248,7 @@ kkt_model_p = ScikitModel(
             fit_intercept=fit_intercept,
             random_state=args.rand_seed,
             verbose=False,
-            max_iter=1000)
+            max_iter=32000)
 kkt_model_p.fit(X_train, y_train)
 
 # report performance of clean model
@@ -463,7 +465,7 @@ for valid_theta_err in valid_theta_errs:
                     fit_intercept=fit_intercept,
                     random_state=args.rand_seed,
                     verbose=False,
-                    max_iter = 1000)
+                    max_iter = 32000)
         curr_model.fit(X_train, y_train)
 
         target_model = ScikitModel(
@@ -472,7 +474,7 @@ for valid_theta_err in valid_theta_errs:
                     fit_intercept=fit_intercept,
                     random_state=args.rand_seed,
                     verbose=False,
-                    max_iter = 1000)
+                    max_iter = 32000)
         target_model.fit(X_train, y_train)
 
         collat_model = ScikitModel(
@@ -481,7 +483,7 @@ for valid_theta_err in valid_theta_errs:
             fit_intercept=fit_intercept,
             random_state=args.rand_seed,
             verbose=False,
-            max_iter=1000
+            max_iter=32000
         )
         collat_model.fit(trn_nsub_x, trn_nsub_y)
 
@@ -545,7 +547,7 @@ for valid_theta_err in valid_theta_errs:
                     fit_intercept=fit_intercept,
                     random_state=args.rand_seed,
                     verbose=False,
-                    max_iter = 1000)
+                    max_iter = 32000)
                 model_p_online.fit(online_full_x, online_full_y)
 
                 # save the data and model for producing the online models
@@ -630,6 +632,9 @@ for valid_theta_err in valid_theta_errs:
             trn_df.loc[subpop_ind, 'Max D2DB'] = max_dist_to_dec_bound
             trn_df.loc[subpop_ind, 'Best Lower Bound'] = best_lower_bound
             trn_df.loc[subpop_ind, 'Model Positive Rate'] = model_prate
+
+            if ((kk + 1) % flush_freq == 0):
+                trn_df.to_csv(trn_desc_fname, index=False)
 
             if not args.no_kkt:
                 ###  perform the KKT attack with same number of poisned points of our Adaptive attack ###
@@ -758,7 +763,7 @@ for valid_theta_err in valid_theta_errs:
                                 fit_intercept=fit_intercept,
                                 random_state=args.rand_seed,
                                 verbose=False,
-                                max_iter = 1000)
+                                max_iter = 32000)
                             model_p.fit(X_modified, Y_modified)
                             # acc on subpop and rest of pops
                             trn_total_acc = model_p.score(X_train, y_train)
@@ -1081,7 +1086,7 @@ for valid_theta_err in valid_theta_errs:
                     fit_intercept=fit_intercept,
                     random_state=args.rand_seed,
                     verbose=False,
-                    max_iter = 1000)
+                    max_iter = 32000)
                 model_p_online.fit(online_full_x, online_full_y)
 
                 # need to save the posioned model from our attack, for the purpose of validating the lower bound for the online attack
@@ -1266,7 +1271,7 @@ for valid_theta_err in valid_theta_errs:
                         fit_intercept=fit_intercept,
                         random_state=args.rand_seed,
                         verbose=False,
-                        max_iter = 1000)
+                        max_iter = 32000)
                     model_p_online.fit(online_full_x, online_full_y)
                     # need to save the posioned model from our attack, for the purpose of validating the lower bound for the online attack
                     if args.poison_whole:
@@ -1450,7 +1455,7 @@ for valid_theta_err in valid_theta_errs:
                         fit_intercept=fit_intercept,
                         random_state=args.rand_seed,
                         verbose=False,
-                        max_iter = 1000)
+                        max_iter = 32000)
                     model_p_online.fit(online_full_x, online_full_y)
 
                     # need to save the posioned model from our attack, for the purpose of validating the lower bound for the online attack

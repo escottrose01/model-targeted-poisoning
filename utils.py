@@ -937,8 +937,8 @@ def incre_online_learning(X_train,
                     fit_intercept=fit_intercept,
                     random_state=args.rand_seed,
                     verbose=False,
-                    max_iter = 1000)
-                    # max_iter=10000)
+                    # max_iter = 1000)
+                    max_iter=32000)
         curr_model.fit(tmp_x, tmp_y)
         theta_ol = curr_model.coef_
         bias_ol = curr_model.intercept_

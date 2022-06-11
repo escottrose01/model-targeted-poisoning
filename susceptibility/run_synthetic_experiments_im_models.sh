@@ -4,11 +4,12 @@ d2db=0.0
 valid_theta_err=1.0
 err_thresh=0.5
 model_selection="min_collateral"
+wdecay=5e-4
 
-seps=($(seq 0.0 0.25 3.0))
+seps=($(seq 0.0 0.25 3.00))
 flips=($(seq 0.0 0.1 1.0))
 seeds=($(seq 1 10))
-interps=($(seq 1.0 1.0))
+interps=($(seq 1.00 1.00))
 
 mkdir -p "files/attack_anim/"
 mkdir -p "files/attack_anim/model_selection-${model_selection}/"
@@ -63,7 +64,7 @@ for seed in "${seeds[@]}"; do
           cp files/data/synthetic_trn_cluster_cpy_desc.csv files/data/synthetic_trn_cluster_desc.csv
 
           python generate_target_theta.py --dataset synthetic --model_type svm \
-            --subpop_type cluster --weight_decay 1e-5 --interp $interp --min_d2db $d2db \
+            --subpop_type cluster --weight_decay $wdecay --interp $interp --min_d2db $d2db \
             --valid_theta_err $valid_theta_err --selection_criteria $model_selection --all_subpops > /dev/null 2>&1
           if [ $? == 0 ]; then
             echo "generated target theta, interp=${interp}"
@@ -73,7 +74,7 @@ for seed in "${seeds[@]}"; do
           fi
 
           python run_kkt_online_attack.py --dataset synthetic --model_type svm \
-            --subpop_type cluster --weight_decay 1e-5 --require_acc --no_kkt \
+            --subpop_type cluster --weight_decay $wdecay --require_acc --no_kkt \
             --target_model real --err_threshold $err_thresh --budget_limit 2000 \
             --target_valid_theta_err $valid_theta_err --sv_im_models > /dev/null 2>&1
           if [ $? == 0 ]; then
