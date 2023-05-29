@@ -17,30 +17,30 @@ mkdir -p "files/attack_anim/adult/valid_theta_err${valid_theta_err}/thresh${err_
 dst_fname="files/subpop_descs/semantic/adult_trn_feature_desc_all.csv"
 if !(test -f "${dst_fname}"); then
   # clear the stage
-  rm -rf files/kkt_models \
-    files/online_models \
-    files/results files/target_classifiers \
-    files/data/*_desc.csv \
-    files/data/*_labels.txt \
-    files/data/*_selected_subpops.txt
-
-  python generate_subpops.py --dataset adult --subpop_type feature --subpop_ratio 0.5 \
-  --tolerance 1.0 --lazy > /dev/null 2>&1
-  if [ $? == 0 ]; then
-    echo "generated subpops"
-  else
-    echo "subpop gen failed! exiting . . ."
-    exit
-  fi
-
-  python generate_target_theta.py --dataset adult --model_type svm --subpop_type feature \
-  --all_subpops --valid_theta_err $valid_theta_err > /dev/null 2>&1
-  if [ $? == 0 ]; then
-    echo "generated target theta"
-  else
-    echo "target theta gen failed! exiting . . ."
-    exit
-  fi
+  # rm -rf files/kkt_models \
+  #   files/online_models \
+  #   files/results files/target_classifiers \
+  #   files/data/*_desc.csv \
+  #   files/data/*_labels.txt \
+  #   files/data/*_selected_subpops.txt
+  #
+  # python generate_subpops.py --dataset adult --subpop_type feature --subpop_ratio 0.5 \
+  # --tolerance 1.0 --lazy > /dev/null 2>&1
+  # if [ $? == 0 ]; then
+  #   echo "generated subpops"
+  # else
+  #   echo "subpop gen failed! exiting . . ."
+  #   exit
+  # fi
+  #
+  # python generate_target_theta.py --dataset adult --model_type svm --subpop_type feature \
+  # --all_subpops --valid_theta_err $valid_theta_err > /dev/null 2>&1
+  # if [ $? == 0 ]; then
+  #   echo "generated target theta"
+  # else
+  #   echo "target theta gen failed! exiting . . ."
+  #   exit
+  # fi
 
   python ./susceptibility/run_adult_experiments.py --dataset adult --model_type svm \
   --subpop_type feature --require_acc --err_threshold $err_thresh --budget_limit 16000 \

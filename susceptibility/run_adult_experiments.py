@@ -1,3 +1,7 @@
+import os, sys
+p = os.path.abspath('.')
+sys.path.insert(1, p)
+
 from sklearn.datasets import make_classification
 
 import numpy as np
@@ -15,8 +19,6 @@ from datasets import load_dataset
 
 import data_utils as data
 import argparse
-import os
-import sys
 import scipy
 
 from sklearn.externals import joblib
@@ -27,6 +29,7 @@ from utils import *
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_type',default='lr',help='victim model type: SVM or logistic regression')
 parser.add_argument('--dataset', default='adult', choices=['adult','mnist_17','2d_toy','dogfish', 'loan', 'compas', 'synthetic'])
+parser.add_argument('--poison_whole',action="store_true",help='if true, attack is indiscriminative attack')
 
 # some params related to online algorithm, use the default
 parser.add_argument('--online_alg_criteria',default='max_loss',help='stop criteria of online alg: max_loss or norm')
@@ -45,6 +48,13 @@ parser.add_argument('--target_valid_theta_err', default=None, type=float, help='
 parser.add_argument('--flush_freq', default=-1, type=int, help='frequency with which to flush output data to file (use for large subpop counts)')
 
 args = parser.parse_args()
+
+dataset_name = args.dataset
+flush_freq = args.flush_freq
+subpop_type = args.subpop_type
+
+percentile = 90
+loss_percentile = 90
 
 # if true, we generate target classifier using label flipping...
 if args.improved:
@@ -104,10 +114,6 @@ else:
     model_grad = logistic_grad
 
 learning_rate = 0.01
-
-dataset_name = args.dataset
-flush_freq = args.flush_freq
-subpop_type = args.subpop_type
 ######################################################################
 
 ################# Main body of work ###################
@@ -240,8 +246,7 @@ for valid_theta_err in valid_theta_errs:
     trn_desc_fname = 'files/data/{}_trn_{}_desc.csv'.format(dataset_name, subpop_type)
     trn_df = pd.read_csv(trn_desc_fname)
 
-    # for kk in range(len(subpop_inds)):
-    for kk in range(10):
+    for kk in range(len(subpop_inds)):
         subpop_ind = int(subpop_inds[kk])
         if args.poison_whole:
             tst_sub_x, tst_sub_y = X_test, y_test

@@ -98,8 +98,6 @@ elif subpop_type == 'feature':
         feature_subsets.append([j for j in range(len(feature_inds)) if (1 << j)&i])
 
     for feature_subset in feature_subsets:
-        if subcl_ix == 5:
-            break
         feature_names = [feature_descriptions[i] for i in feature_subset]
 
         subcl_inds_nested = [feature_inds[i] for i in feature_subset]
