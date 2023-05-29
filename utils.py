@@ -8,6 +8,7 @@ from sklearn import cluster
 import csv
 import pickle
 import sklearn
+import scipy
 
 import cvxpy as cvx
 idx_improved  = 0
@@ -672,6 +673,9 @@ def incre_online_learning(X_train,
             lr = 0.1
         num_steps = 20000
 
+    best_max_loss_x = None
+    best_max_loss_y = None
+
     X_tar_poison = target_poisons["X_poison"]
     Y_tar_poison = target_poisons["Y_poison"]
     target_num_checker = len(X_tar_poison)
@@ -775,6 +779,7 @@ def incre_online_learning(X_train,
     norm_diffs = []
     current_total_losses = []
     lower_bounds = []
+    im_models = [np.concatenate((theta_ol.flatten(), bias_ol))]
     # append the info on subpop, rest of pop and the whole pop
     trn_sub_acc = []
     trn_nsub_acc = []
@@ -801,10 +806,13 @@ def incre_online_learning(X_train,
             stop_cond = tst_sub_acc1 > 1-args.err_threshold
         else:
             stop_cond = current_tol_par > ol_lr_threshold
+        if args.budget_limit is not None:
+            stop_cond = stop_cond and (num_iter < args.budget_limit)
     else:
         stop_cond = num_iter < args.fixed_budget
         print("runing with fixed number of poisoned points,",args.fixed_budget)
 
+    lower_bound_real = 0 # put this here to fix an error, might not be correct
     while stop_cond:
     # while trn_sub_acc1 > 1-args.err_threshold:
         print("***** num of poisons and target number of poisons *****:",num_iter,args.fixed_budget)
@@ -903,15 +911,16 @@ def incre_online_learning(X_train,
                         x_lim_tuples,
                         args)
 
-        if target_model_type == 'real':
-            if lower_bound_real > target_num_checker:
-                print("something wrong with the lower bound for target model generated from heuristic method!")
-                sys.exit(0)
-
-        if target_model_type in ["kkt","ol"] and args.model_type != "lr":
-            if lower_bound > attack_num_poison:
-                print("something wrong with the lower bound of classifier generated from our attack or KKT attack!")
-                sys.exit(0)
+        # I believe this should only be checked if err_thresh = 1?
+        # if target_model_type == 'real':
+        #     if lower_bound_real > target_num_checker:
+        #         print("something wrong with the lower bound for target model generated from heuristic method!")
+        #         sys.exit(0)
+        #
+        # if target_model_type in ["kkt","ol"] and args.model_type != "lr":
+        #     if lower_bound > attack_num_poison:
+        #         print("something wrong with the lower bound of classifier generated from our attack or KKT attack!")
+        #         sys.exit(0)
 
         ### update the model weights accordingly
         tmp_x = np.concatenate((tmp_x,x_poisons),axis=0)
@@ -928,7 +937,8 @@ def incre_online_learning(X_train,
                     fit_intercept=fit_intercept,
                     random_state=args.rand_seed,
                     verbose=False,
-                    max_iter = 1000)
+                    # max_iter = 1000)
+                    max_iter=32000)
         curr_model.fit(tmp_x, tmp_y)
         theta_ol = curr_model.coef_
         bias_ol = curr_model.intercept_
@@ -1014,12 +1024,18 @@ def incre_online_learning(X_train,
         # append the max loss point of max_loss point found w.r.t iterations
         target_poison_max_losses.append(max_loss_poison)
 
+        # save the intermediate model, if needed
+        if args.sv_im_models:
+            im_models.append(np.concatenate((theta_ol.flatten(), bias_ol)))
+
         # stop condition check
         if args.fixed_budget <= 0:
             if args.require_acc:
                 stop_cond = tst_sub_acc1 > 1-args.err_threshold
             else:
                 stop_cond = current_tol_par > ol_lr_threshold
+            if args.budget_limit is not None:
+                stop_cond = stop_cond and (num_iter < args.budget_limit)
         else:
             stop_cond = num_iter < args.fixed_budget
     # complete the last iteration info of the our attack
@@ -1057,7 +1073,7 @@ def incre_online_learning(X_train,
 
     return online_poisons_x, online_poisons_y, best_lower_bound, conser_lower_bound, best_max_loss_x, best_max_loss_y,\
          current_tol_par, np.squeeze(target_poison_max_losses), np.squeeze(current_total_losses), np.squeeze(ol_tol_params),\
-              np.squeeze(max_loss_diffs_reg), np.squeeze(lower_bounds), online_acc_scores, norm_diffs
+              np.squeeze(max_loss_diffs_reg), np.squeeze(lower_bounds), online_acc_scores, norm_diffs, im_models
 
 def compare_attack_and_lower_bound(online_poisons_y,
                                    X_train,
@@ -1136,33 +1152,38 @@ def compare_attack_and_lower_bound(online_poisons_y,
     ol_acc_scores = [total_tst_acc,target_tst_acc,collat_tst_acc,total_trn_acc,target_trn_acc,collat_trn_acc]
     return [kkt_norm_diff, ol_norm_diff],kkt_acc_scores,ol_acc_scores
 
-def get_subpop_inds(dataset_name, tst_subpop_inds, trn_subpop_inds, Y_test, Y_train):
-    # indices of points belong to subpop
-    if dataset_name == "adult":
-        tst_sbcl = np.where(np.logical_and(tst_subpop_inds, Y_test == -1))
-        trn_sbcl = np.where(np.logical_and(trn_subpop_inds, Y_train == -1))
-        tst_non_sbcl = np.where(np.logical_or(np.logical_not(tst_subpop_inds), Y_test != -1))
-        trn_non_sbcl = np.where(np.logical_or(np.logical_not(trn_subpop_inds), Y_train != -1))
-    else:
-        # need to first figure out the majority class and then only consider subpopulation with
-        # consistent major label on train and test data
+def get_subpop_inds(dataset_name, tst_subpop_inds, trn_subpop_inds, Y_test, Y_train, mixed=False):
+    if mixed:
         tst_sbcl = np.where(tst_subpop_inds)
         trn_sbcl = np.where(trn_subpop_inds)
-        Y_train_sel, Y_test_sel =  Y_train[trn_sbcl], Y_test[tst_sbcl]
+        tst_non_sbcl = np.where(np.logical_not(tst_subpop_inds))
+        trn_non_sbcl = np.where(np.logical_not(trn_subpop_inds))
+    else:
+        if dataset_name in ['adult', 'loan', 'compas', 'synthetic']:
+            tst_sbcl = np.where(np.logical_and(tst_subpop_inds, Y_test == -1))
+            trn_sbcl = np.where(np.logical_and(trn_subpop_inds, Y_train == -1))
+            tst_non_sbcl = np.where(np.logical_or(np.logical_not(tst_subpop_inds), Y_test != -1))
+            trn_non_sbcl = np.where(np.logical_or(np.logical_not(trn_subpop_inds), Y_train != -1))
+        else:
+            # need to first figure out the majority class and then only consider subpopulation with
+            # consistent major label on train and test data
+            tst_sbcl = np.where(tst_subpop_inds)
+            trn_sbcl = np.where(trn_subpop_inds)
+            Y_train_sel, Y_test_sel =  Y_train[trn_sbcl], Y_test[tst_sbcl]
 
-        mode_tst = scipy.stats.mode(Y_test_sel)
-        mode_trn = scipy.stats.mode(Y_train_sel)
-        print("selected major labels in test and train data:",mode_trn,mode_tst,len(Y_train_sel),len(Y_test_sel))
-        print(type(mode_trn))
-        major_lab_trn = mode_trn.mode[0]
-        major_lab_tst = mode_tst.mode[0]
-        # print(major_lab_trn,major_lab_tst)
+            mode_tst = scipy.stats.mode(Y_test_sel)
+            mode_trn = scipy.stats.mode(Y_train_sel)
+            # print("selected major labels in test and train data:",mode_trn,mode_tst,len(Y_train_sel),len(Y_test_sel))
+            # print(type(mode_trn))
+            major_lab_trn = mode_trn.mode[0]
+            major_lab_tst = mode_tst.mode[0]
+            # print(major_lab_trn,major_lab_tst)
 
-        assert major_lab_trn ==  major_lab_tst, "inconsistent in labels between test and train subpop"
-        print("selected major label is:",major_lab_trn)
-        tst_sbcl = np.where(np.logical_and(tst_subpop_inds, Y_test == major_lab_tst))
-        trn_sbcl = np.where(np.logical_and(trn_subpop_inds, Y_train == major_lab_trn))
-        tst_non_sbcl = np.where(np.logical_or(np.logical_not(tst_subpop_inds), Y_test != major_lab_tst))
-        trn_non_sbcl = np.where(np.logical_or(np.logical_not(trn_subpop_inds), Y_train != major_lab_trn))
+            assert major_lab_trn ==  major_lab_tst, "inconsistent in labels between test and train subpop"
+            # print("selected major label is:",major_lab_trn)
+            tst_sbcl = np.where(np.logical_and(tst_subpop_inds, Y_test == major_lab_tst))
+            trn_sbcl = np.where(np.logical_and(trn_subpop_inds, Y_train == major_lab_trn))
+            tst_non_sbcl = np.where(np.logical_or(np.logical_not(tst_subpop_inds), Y_test != major_lab_tst))
+            trn_non_sbcl = np.where(np.logical_or(np.logical_not(trn_subpop_inds), Y_train != major_lab_trn))
 
     return tst_sbcl, trn_sbcl, tst_non_sbcl, trn_non_sbcl

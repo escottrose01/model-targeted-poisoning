@@ -246,8 +246,8 @@ def load_adult_unscaled():
     tst_zero_inds = np.where(tst_y==0)[0]
     tst_one_inds = np.where(tst_y==1)[0]
 
-    trn_zeros = np.random.choice(trn_zero_inds.shape[0], trn_one_inds.shape[0], replace=False)
-    tst_zeros = np.random.choice(tst_zero_inds.shape[0], tst_one_inds.shape[0], replace=False)
+    trn_zeros = np.random.choice(trn_zero_inds.shape[0], trn_one_inds.shape[0], replace=False) # likely a bug . . . leaving for consistency
+    tst_zeros = np.random.choice(tst_zero_inds.shape[0], tst_one_inds.shape[0], replace=False) # should be zero_inds, not zero_inds.shape[0]
 
     trn_x = np.concatenate((trn_x[trn_zeros], trn_x[trn_one_inds]), axis=0)
     tst_x = np.concatenate((tst_x[tst_zeros], tst_x[tst_one_inds]), axis=0)
@@ -257,7 +257,7 @@ def load_adult_unscaled():
     trn_shuffle = np.random.choice(trn_x.shape[0], trn_x.shape[0], replace=False)
     trn_x, trn_y = trn_x[trn_shuffle], trn_y[trn_shuffle]
 
-    return trn_x, trn_y, tst_x, tst_y, list(full.columns)
+    return trn_x, trn_y, tst_x, tst_y, full.columns.values.tolist()
 
 def load_dataset(dataset_name,class_sep = 1.0):
     if dataset_name == 'imdb':
@@ -422,3 +422,98 @@ def load_attack_npz(dataset_name, file_name, take_path=False):
     check_poisoned_data(X_train, Y_train, X_poison, Y_poison, X_modified, Y_modified)
 
     return X_modified, Y_modified, X_test, Y_test, idx_train, idx_poison
+
+def load_loan_cols():
+    return [
+        'disbursed amt.', 'asset cost', 'ltv', 'aadhar flag', 'pan flag',
+        'voterid flag', 'driving flag', 'passport flag', 'perform cns score', 'pri no of accts',
+        'pri active accts', 'pri overdue accts', 'pri current balance', 'pri sanctioned amount', 'pri disbursed amount',
+        'sec no of accts', 'sec active accts', 'sec overdue accts', 'sec current balance', 'sec sanctioned amount',
+        'sec disbursed amount', 'primary instal amt', 'sec instal amt', 'new accts in last six months', 'delinquent accts in last six months',
+        'average acct age', 'credit history length', 'no of inquiries', 'employment type: salaried', 'employment type: self employed',
+        'cns score desc.: A - very low risk', 'cns score desc.: B - very low risk', 'cns score desc.: C - very low risk', 'cns score desc.: D - very low risk',
+        'cns score desc.: E - low risk', 'cns score desc.: F - low risk', 'cns score desc.: G - low risk',
+        'cns score desc.: H - medium risk', 'cns score desc.: I - medium risk',
+        'cns score desc.: J - high risk', 'cns score desc.: K - high risk',
+        'cns score desc.: L - very high risk', 'cns score desc.: M - very high risk',
+        'cns score desc.: no bureau history available', 'cns score desc: not scored; 50+ accts',
+        'cns score desc: not scored; inactive customer', 'cns score desc: not scored; no updates in last 36 months',
+        'cns score desc: not scored; not enough customer info', 'cns score desc: not scored; only a guarantor',
+        'cns score desc: not scored; insufficient history',
+    ]
+
+def load_compas_cols():
+    return [
+        'no. priors', 'score factor', 'age above 45', 'age below 25',
+        'african american', 'asian', 'hispanic', 'native american', 'other',
+        'female', 'misdemeanor'
+    ]
+
+def load_dataset_cols(dataset_name):
+    if dataset_name == 'adult':
+        return load_adult_unscaled()[4]
+    elif dataset_name == 'loan':
+        return load_loan_cols()
+    elif dataset_name == 'compas':
+        return load_compas_cols()
+    else:
+        return None
+
+def load_dataset_feature_inds(dataset_name):
+    feature_inds, feature_descriptions = None, None
+
+    if dataset_name == 'adult':
+        feature_inds = [
+            list(range(4, 12)),     # work class
+            list(range(12, 27)),    # education level
+            list(range(27, 33)),    # marital status
+            list(range(33, 47)),    # occupation
+            list(range(47, 52)),    # relationship status
+            list(range(52, 56)),    # race
+            list(range(56, 57)),    # sex
+        ]
+
+        feature_descriptions = [
+            'work class',
+            'education',
+            'marital status',
+            'occupation',
+            'relationship status',
+            'race',
+            'sex'
+        ]
+    elif dataset_name == 'loan':
+        feature_inds = [
+            list(range(3, 4)),      # aadhar flag
+            list(range(4, 5)),      # pan flag
+            list(range(5, 6)),      # voterid flag
+            list(range(6, 7)),      # driving flag
+            list(range(7, 8)),      # passport flag
+            list(range(28, 30)),    # employment type
+            list(range(30, 50)),    # cns score description
+        ]
+
+        feature_descriptions = [
+            'aadhar flag',
+            'pan flag',
+            'voterid flag',
+            'driving flag',
+            'passport flag',
+            'employment type',
+            'cns score desc.',
+        ]
+    elif dataset_name == 'compas':
+        feature_inds = [
+            list(range(2, 4)),      # age class
+            list(range(4, 9)),      # race
+            list(range(9, 10)),     # sex
+            list(range(10, 11)),    # misdemeanor flag
+        ]
+
+        feature_descriptions = [
+            'age class',
+            'race',
+            'sex',
+            'misdemeanor flag'
+        ]
+    return feature_inds, feature_descriptions

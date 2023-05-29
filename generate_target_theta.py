@@ -13,6 +13,7 @@ import argparse
 from datasets import load_dataset
 import os
 import scipy
+import pandas as pd
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_type',default='lr',help='victim model type: SVM or rlogistic regression')
@@ -20,7 +21,12 @@ parser.add_argument('--dataset', default='adult',help="three datasets: mnist_17,
 parser.add_argument('--weight_decay',default=0.09, type=float, help='weight decay for regularizers')
 parser.add_argument('--improved',action="store_true",help='if true, target classifier is obtained through improved process')
 parser.add_argument('--subpop',action="store_true",help='if true, subpopulation attack will be performed')
-parser.add_argument('--subpop_type', default='cluster', choices=['cluster', 'feature'], help='subpopulaton type: cluster or feature')
+parser.add_argument('--subpop_type', default='cluster', choices=['cluster', 'feature', 'random'], help='subpopulaton type: cluster, feature, or random')
+parser.add_argument('--all_subpops', action="store_true", help='if true, generates models for all subpopulations')
+parser.add_argument('--min_d2db', default=None, type=float, help='acceptable minimum distance to decision boundary')
+parser.add_argument('--interp', default=None, type=float, help='linear interpolation between clean and target model')
+parser.add_argument('--valid_theta_err', default=None, type=float, help='minimum target model classification error')
+parser.add_argument('--selection_criteria', default='min_collateral', choices=['min_collateral', 'max_loss'], help='target model choice criteria')
 
 args = parser.parse_args()
 
@@ -41,6 +47,10 @@ elif args.dataset == "2d_toy":
 elif args.dataset == "dogfish":
     subpop = args.subpop
     args.weight_decay = 1.1
+elif args.dataset in ['loan', 'compas', 'synthetic']:
+    subpop = True
+else:
+    subpop = args.subpop
 
 if args.model_type == 'svm':
     print("chosen model: svm")
@@ -53,7 +63,7 @@ else:
 prune_theta = True
 
 dataset_name = args.dataset
-assert dataset_name in ['adult','mnist_17','2d_toy','dogfish']
+assert dataset_name in ['adult','mnist_17','2d_toy','dogfish', 'loan', 'compas', 'synthetic']
 
 subpop_type = args.subpop_type
 
@@ -69,23 +79,7 @@ print(np.amax(Y_train),np.amin(Y_train))
 
 max_iter = -1
 
-# quantile_tape = [0.05, 0.07, 0.10, 0.12, 0.15, 0.18, 0.20, 0.22, 0.25]
-# rep_tape = [1, 2, 3, 5, 8, 12, 18, 25]
-
 fit_intercept = True
-# def svm_model(**kwargs):
-#     return svm.LinearSVC(loss='hinge', **kwargs)
-
-# # hinge loss and error computation
-# def calculate_loss(margins):
-#     losses = np.amax(1-margins, 0)
-#     errs = (margins < 0) + 0.5 * (margins == 0)
-#     return np.sum(losses)/len(margins), np.sum(errs)/len(errs)
-
-# # computer distance to decison boundary, used for subpop target generation
-# def dist_to_boundary(theta,bias,data):
-#     abs_vals = np.abs(np.dot(data,theta) + bias)
-#     return abs_vals/(np.linalg.norm(theta,ord = 2))
 
 C = 1.0 / (X_train.shape[0] * args.weight_decay)
 model = ScikitModel(
@@ -94,10 +88,11 @@ model = ScikitModel(
     fit_intercept=fit_intercept,
     random_state=24,
     verbose=False,
-    max_iter = 1000)
+    max_iter = 10000)
 model.fit(X_train, Y_train)
 orig_theta = model.coef_.reshape(-1)
 orig_bias = model.intercept_
+
 # calculate the clean model acc
 train_acc = model.score(X_train,Y_train)
 test_acc = model.score(X_test,Y_test)
@@ -175,7 +170,7 @@ if not subpop:
                     fit_intercept=fit_intercept,
                     random_state=24,
                     verbose=False,
-                    max_iter = 1000)
+                    max_iter = 10000)
             model_p.fit(X_train_p,Y_train_p)
             target_theta, target_bias = model_p.coef_.reshape(-1), model_p.intercept_
             # train margin and loss
@@ -422,10 +417,14 @@ elif args.improved:
             trn_nsub_x, trn_nsub_y = X_train[trn_non_sbcl], Y_train[trn_non_sbcl]
             tst_sub_acc = model.score(tst_sub_x, tst_sub_y)
             # make sure subpop is from class -1
-            if dataset_name == 'adult':
+            if dataset_name in ['adult', 'loan', 'compas']:
                 assert (tst_sub_y == -1).all()
                 assert (trn_sub_y == -1).all()
             else:
+                mode_tst = scipy.stats.mode(tst_sub_y)
+                mode_trn = scipy.stats.mode(trn_sub_y)
+                major_lab_trn = mode_trn.mode[0]
+                major_lab_tst = mode_tst.mode[0]
                 assert (tst_sub_y == major_lab_tst).all()
                 assert (trn_sub_y == major_lab_tst).all()
             # check the target and collateral damage info
@@ -471,7 +470,7 @@ elif args.improved:
                         fit_intercept=fit_intercept,
                         random_state=24,
                         verbose=False,
-                        max_iter = 1000)
+                        max_iter = 10000)
 
                 model_p.fit(whole_x,whole_y)
                 pois_acc = model_p.score(X_test,Y_test)
@@ -567,6 +566,7 @@ else:
     subpop_inds, subpop_cts = np.unique(subpops_flattened, return_counts=True)
 
     trn_sub_accs = []
+    n_bad = 0
     for i in range(len(subpop_cts)):
         subpop_ind, subpop_ct = subpop_inds[i], subpop_cts[i]
         print("subpop ID and Size:", subpop_ind, subpop_ct)
@@ -580,8 +580,14 @@ else:
         tst_nsub_x, tst_nsub_y = X_test[tst_non_sbcl], Y_test[tst_non_sbcl]
         trn_sub_x, trn_sub_y  = X_train[trn_sbcl], Y_train[trn_sbcl]
         trn_nsub_x, trn_nsub_y = X_train[trn_non_sbcl], Y_train[trn_non_sbcl]
-        tst_sub_acc = model.score(tst_sub_x, tst_sub_y)
-        trn_sub_acc = model.score(trn_sub_x, trn_sub_y)
+        if len(tst_sub_y) == 0 or len(trn_sub_y) == 0:
+            tst_sub_acc = -float('inf')
+            trn_sub_acc = -float('inf')
+            n_bad += 1
+        else:
+            tst_sub_acc = model.score(tst_sub_x, tst_sub_y)
+            trn_sub_acc = model.score(trn_sub_x, trn_sub_y)
+
         # check the target and collateral damage info
         print("----------Subpop Indx: {} ------".format(subpop_ind))
         print('Clean Train Target Acc : %.3f' % trn_sub_acc)
@@ -591,13 +597,15 @@ else:
         print("shape of subpopulations",trn_sub_x.shape,trn_nsub_x.shape,tst_sub_x.shape,tst_nsub_x.shape)
         trn_sub_accs.append(trn_sub_acc)
 
-    print(subpop_inds, subpop_cts)
-    # print(tst_sub_accs)
     # sort the subpop based on tst acc and choose 5 highest ones
-    if args.dataset in ['adult','dogfish']:
+    if args.all_subpops:
+        highest_5_inds = np.argsort(trn_sub_accs)[n_bad:]
+    elif args.dataset in ['adult','dogfish']:
         highest_5_inds = np.argsort(trn_sub_accs)[-3:]
     elif args.dataset == '2d_toy':
         highest_5_inds = np.argsort(trn_sub_accs)[-4:]
+    else:
+        highest_5_inds = np.argsort(trn_sub_accs)[-3:]
     subpop_inds = subpop_inds[highest_5_inds]
     subpop_cts = subpop_cts[highest_5_inds]
     print(subpop_inds, subpop_cts)
@@ -607,22 +615,33 @@ else:
         dataset_name, args.model_type, subpop_type)
     np.savetxt(cls_fname,np.array([subpop_inds,subpop_cts]))
 
-    if dataset_name == 'dogfish':
+    if args.valid_theta_err is not None:
+        valid_theta_errs = [args.valid_theta_err]
+    elif dataset_name == 'dogfish':
         valid_theta_errs = [0.9]
     else:
         valid_theta_errs = [1.0]
+
     # repitition of the points
-    if dataset_name != "dogfish":
+    if dataset_name == 'compas':
+        quantile_tape = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55,0.8,1.0]
+        rep_tape = [1, 2, 3, 5, 8, 10, 12, 15, 20, 25, 30,40,50,80,100,200,500]
+    elif dataset_name != "dogfish":
         quantile_tape = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55,0.8,1.0]
         rep_tape = [1, 2, 3, 5, 8, 10, 12, 15, 20, 25, 30,40,50,80,100]
     else:
         quantile_tape = [0.40, 0.45, 0.50, 0.55,0.8,1.0]
         rep_tape = [1, 2, 3, 5, 8, 10, 12, 15, 20, 25, 30,40,50,80,100]
 
+    # for subpop descriptions
+    trn_desc_fname = 'files/data/{}_trn_{}_desc.csv'.format(dataset_name, subpop_type)
+    trn_df = pd.read_csv(trn_desc_fname)
+
     for valid_theta_err in valid_theta_errs:
         print("#---------Selected Subpops------#")
         for i in range(len(subpop_cts)):
             subpop_ind, subpop_ct = subpop_inds[i], subpop_cts[i]
+            trn_df.loc[subpop_ind, 'Flip Num Poisons'] = float('inf')
             print("cluster ID and Size:",subpop_ind,subpop_ct)
             thetas = []
             biases = []
@@ -631,6 +650,7 @@ else:
             collat_errs = []
             # best_collat_acc = 0
             min_train_loss = 1e10
+            max_test_target_loss = 0
 
             tst_subpop_inds = np.array([np.any(v == subpop_ind) for v in tst_all_subpops])
             trn_subpop_inds = np.array([np.any(v == subpop_ind) for v in trn_all_subpops])
@@ -644,10 +664,14 @@ else:
             trn_nsub_x, trn_nsub_y = X_train[trn_non_sbcl], Y_train[trn_non_sbcl]
             tst_sub_acc = model.score(tst_sub_x, tst_sub_y)
             # make sure subpop is from class -1
-            if dataset_name == 'adult':
+            if dataset_name in ['adult', 'loan', 'compas', 'synthetic']:
                 assert (tst_sub_y == -1).all()
                 assert (trn_sub_y == -1).all()
             else:
+                mode_tst = scipy.stats.mode(tst_sub_y)
+                mode_trn = scipy.stats.mode(trn_sub_y)
+                major_lab_trn = mode_trn.mode[0]
+                major_lab_tst = mode_tst.mode[0]
                 assert (tst_sub_y == major_lab_tst).all()
                 assert (trn_sub_y == major_lab_tst).all()
 
@@ -659,17 +683,21 @@ else:
             print('Clean Test Collat Acc : %.3f' % model.score(tst_nsub_x, tst_nsub_y))
             print("shape of subpopulations",trn_sub_x.shape,trn_nsub_x.shape,tst_sub_x.shape,tst_nsub_x.shape)
 
+            best_theta = None
+            best_bias = None
+
             # find the loss percentile
             clean_margins = tst_sub_y*(tst_sub_x.dot(orig_theta) + orig_bias)
             ym = (-1)*tst_sub_y
             for loss_quantile in quantile_tape:
-                for tar_rep in rep_tape:
+                rep_tape_tmp = rep_tape[:] # copies list, so we can modify it
+                for tar_rep in rep_tape_tmp:
                     print(" ----- Loss Quantile {} and Repetition Number {} ------".format(loss_quantile, tar_rep))
                     X_tar = []
                     Y_tar = []
                     margin_thresh = np.quantile(clean_margins, loss_quantile)
                     for i in range(len(y_list)):
-                        active_cur = np.logical_and(tst_sub_y == y_list[i],clean_margins < margin_thresh)
+                        active_cur = np.logical_and(tst_sub_y == y_list[i],clean_margins <= margin_thresh)
                         print("valid active instance num: {}, total instance num: {}".format(np.sum(active_cur),active_cur.shape[0]))
                         X_tar_cur = tst_sub_x[active_cur,:]
                         y_tar_cur = ym[active_cur]
@@ -694,7 +722,7 @@ else:
                             fit_intercept=fit_intercept,
                             random_state=24,
                             verbose=False,
-                            max_iter = 1000)
+                            max_iter = 10000)
                     model_p.fit(X_train_p,Y_train_p)
                     # plot the acc info
                     test_acc = model_p.score(X_test,Y_test)
@@ -720,7 +748,7 @@ else:
                     train_losses.append(train_loss)
 
                     margins = tst_sub_y*(tst_sub_x.dot(target_theta) + target_bias)
-                    _, test_error = calculate_loss(margins)
+                    test_target_loss, test_error = calculate_loss(margins)
                     test_errs.append(test_error)
 
                     thetas.append(target_theta)
@@ -746,12 +774,27 @@ else:
                     acc_threshold = 1 - valid_theta_err
 
                     if tst_sub_acc <= acc_threshold:
-                        if train_loss < min_train_loss:
-                            min_train_loss = train_loss
-                            best_theta = np.copy(target_theta)
-                            best_bias = np.copy(target_bias[0])
-                            best_num_poisons = np.copy(len(Y_tar))
-                            print("updated lowest train loss is:",train_loss)
+                        if len(Y_tar) < trn_df.loc[subpop_ind, 'Flip Num Poisons']:
+                            trn_df.loc[subpop_ind, 'Flip Num Poisons'] = len(Y_tar)
+                        if args.selection_criteria == 'min_collateral':
+                            if train_loss < min_train_loss:
+                                min_train_loss = train_loss
+                                best_theta = np.copy(target_theta)
+                                best_bias = np.copy(target_bias[0])
+                                best_num_poisons = np.copy(len(Y_tar))
+                                print("updated lowest train loss is:",train_loss)
+                        elif args.selection_criteria == 'max_loss':
+                            if test_target_loss > max_test_target_loss:
+                                max_test_target_loss = test_target_loss
+                                best_theta = np.copy(target_theta)
+                                best_bias = np.copy(target_bias[0])
+                                best_num_poisons = np.copy(len(Y_tar))
+                                print("updated lowest train loss is:",train_loss)
+
+                    # if we never found a successful target model, try this:
+                    if (best_theta is None) and (loss_quantile == quantile_tape[-1]) and (tar_rep == rep_tape_tmp[-1]):
+                        assert tar_rep < 20000, "too many repetitions needed! giving up on subpop {}".format(subpop_ind)
+                        rep_tape_tmp.append(2*rep_tape_tmp[-1])
 
             thetas = np.array(thetas)
             biases = np.array(biases)
@@ -759,7 +802,23 @@ else:
             train_losses = np.array(train_losses)
             collat_errs = np.array(collat_errs)
 
+            assert best_theta is not None, 'Was not able to find satisfactory target model!'
+
+            # offset bias to satisfy min distance to boundary
+            # assumes goal is to make positive
+            norm_theta = np.linalg.norm(best_theta)
+            near = np.min((np.dot(trn_sub_x,best_theta) + best_bias) / norm_theta)
+            if args.min_d2db is not None and near < args.min_d2db:
+                best_bias += norm_theta * (args.min_d2db - near)
+                near = np.min(dist_to_boundary(best_theta, best_bias, trn_sub_x))
+            if args.interp is not None and args.interp > 0:
+                best_theta = args.interp*best_theta + (1. - args.interp)*orig_theta
+                best_bias = args.interp*best_bias + (1. - args.interp)*orig_bias
+
             print("Acc of best theta and bias:")
+            margins = tst_sub_y*(tst_sub_x.dot(best_theta) + best_bias)
+            test_loss, test_err = calculate_loss(margins)
+            print("Target Test Loss of best theta:", )
             margins = tst_sub_y*(tst_sub_x.dot(best_theta) + best_bias)
             _, test_err = calculate_loss(margins)
             print("Target Train Acc of best theta:",1-test_err)
@@ -809,3 +868,4 @@ else:
                 file_all = open('files/target_classifiers/{}/{}/{}/orig_thetas_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type, int(subpop_ind),valid_theta_err), 'wb')
                 pickle.dump(data_all, file_all,protocol=2)
                 file_all.close()
+    trn_df.to_csv('files/data/{}_trn_{}_desc.csv'.format(dataset_name, subpop_type), index=False)
