@@ -119,6 +119,28 @@ def compute_max_loss_diff(x,y,theta_c,bias_c,theta_p,bias_p):
     neg_ll_p = -log_likelihood(x, y, theta_p,bias_p)
     return neg_ll_c - neg_ll_p
 
+def proj_constraint_size(theta, x_lim_tuple):
+    # can solve in closed form, but for generality use cvx
+    x_min, x_max = x_lim_tuple
+    return np.sum(np.maximum(x_min * theta, x_max * theta)) - np.sum(np.minimum(x_min * theta, x_max * theta))
+
+def proj_separability(theta, X, y):
+    neg = y == -1
+    pos = y == 1
+    assert sum(neg) + sum(pos) == len(y), "inconsistent labeling in dataset"
+
+    p_neg = sum(neg) / len(y)
+    p_pos = 1.0 - p_neg
+    proj_neg = np.dot(X[neg], theta.T)
+    proj_pos = np.dot(X[pos], theta.T)
+
+    proj_sep = np.abs(np.mean(proj_neg) - np.mean(proj_pos))
+    proj_var = p_neg * np.var(proj_neg) + p_pos * np.var(proj_pos)
+    proj_std = np.sqrt(proj_var)
+
+    return proj_sep, proj_std
+
+
 def lr_search_max_loss_pt(d,curr_model,target_model,y,x_lim_tuple,args,lr=1e-5,num_steps=3000,trials=10,optimizer = 'adam'):
     # deply gradient descend strategy to search for apprximately max loss
     # optimizer: 'gd': gradent descend; 'adagrad', 'adam'; empirically, adam seems to converge much faster than the other two

@@ -34,7 +34,7 @@ def kkt_setup(
     use_l2,
     x_pos_tuple = None,
     x_neg_tuple = None,
-    model_type='svm'): 
+    model_type='svm'):
 
     clean_grad_at_target_theta, clean_bias_grad_at_target_theta = model_grad(
         target_theta,
@@ -42,7 +42,7 @@ def kkt_setup(
         X_train,
         Y_train)
     print(clean_bias_grad_at_target_theta.shape,clean_grad_at_target_theta.shape)
-    
+
     if model_type == 'svm':
         losses_at_target = upper_bounds.indiv_hinge_losses(
             target_theta,
@@ -63,6 +63,10 @@ def kkt_setup(
 
     if model_type == 'svm':
         sv_indices = losses_at_target > 0
+
+        # check validity of this correction
+        if len(set(Y_train[sv_indices])) < 2:
+            sv_indices = np.arange(X_train.shape[0])
     else:
         sv_indices = np.arange(X_train.shape[0])
 
@@ -101,7 +105,7 @@ def kkt_setup(
         raise NotImplementedError
 
     target_bias_grad = clean_bias_grad_at_target_theta
-    
+
     return two_class_kkt, clean_grad_at_target_theta, target_bias_grad, max_losses
 
 def kkt_attack(two_class_kkt,
@@ -160,7 +164,7 @@ def kkt_for_lr(d,args,target_grad,theta_p,bias_p,
     best_obj = 1e10
     for trial in range(trials):
         # print("------ trial {}------".format(trial))
-        # optimization variables 
+        # optimization variables
         if args.dataset == 'dogfish':
             x_pos = np.array([upper_bounds.random_sample(x_min_pos[i],x_max_pos[i]) for i in range(len(x_min_pos))])
             x_neg = np.array([upper_bounds.random_sample(x_min_neg[i],x_max_neg[i]) for i in range(len(x_min_neg))])
@@ -185,15 +189,15 @@ def kkt_for_lr(d,args,target_grad,theta_p,bias_p,
             beta1 = 0.9
             beta2 = 0.999
             epsilon = 1e-8
-        
+
         prev_obj = 1e10
         for step in range(num_steps):
             score_pos = np.dot(theta_p, x_pos) + bias_p
             score_neg = np.dot(theta_p, x_neg) + bias_p
 
             # sigmoid prediction confidence
-            prediction_pos = upper_bounds.sigmoid(score_pos) 
-            prediction_neg = upper_bounds.sigmoid(score_neg) 
+            prediction_pos = upper_bounds.sigmoid(score_pos)
+            prediction_neg = upper_bounds.sigmoid(score_neg)
             # output_error_signal_pos = 1 - prediction_pos  # this is also the gradient of b for positive x part
             # output_error_signal_neg = -1 - prediction_neg  # this is also the gradient of b for negative x part
 
@@ -203,12 +207,12 @@ def kkt_for_lr(d,args,target_grad,theta_p,bias_p,
             if step == 0:
                 print("(random) initial obj value:",kkt_obj)
             # constant values for x_pos and x_neg
-            grad_pos = 2 * eps_pos * (1-prediction_pos) * kkt_obj_grad 
+            grad_pos = 2 * eps_pos * (1-prediction_pos) * kkt_obj_grad
             grad_neg = 2 * eps_neg * (-prediction_neg) * kkt_obj_grad # note that, we use negative label as 0, not -1
 
             if optimizer == 'gd':
                 x_pos -= lr * grad_pos
-                x_neg -= lr * grad_neg 
+                x_neg -= lr * grad_neg
             elif optimizer == 'adagrad':
                 """Weights update using adagrad.
                 grads2 = grads2 + grads**2
@@ -222,7 +226,7 @@ def kkt_for_lr(d,args,target_grad,theta_p,bias_p,
                 x_neg = x_neg - lr * grad_neg / (np.sqrt(grads_squared_neg) + epsilon)
             elif optimizer == 'adam':
                 """Weights update using Adam.
-                
+
                 g1 = beta1 * g1 + (1 - beta1) * grads
                 g2 = beta2 * g2 + (1 - beta2) * g2
                 g1_unbiased = g1 / (1 - beta1**time)
@@ -238,7 +242,7 @@ def kkt_for_lr(d,args,target_grad,theta_p,bias_p,
                 grads_first_moment_unbiased_pos = grads_first_moment_pos / (1. - beta1**time)
                 grads_second_moment_unbiased_pos = grads_second_moment_pos / (1. - beta2**time)
                 x_pos = x_pos - lr * grads_first_moment_unbiased_pos /(np.sqrt(grads_second_moment_unbiased_pos) + epsilon)
-                
+
                 # update x_neg
                 grads_first_moment_neg = beta1 * grads_first_moment_neg + \
                                         (1. - beta1) * grad_neg
@@ -247,13 +251,13 @@ def kkt_for_lr(d,args,target_grad,theta_p,bias_p,
 
                 grads_first_moment_unbiased_neg = grads_first_moment_neg / (1. - beta1**time)
                 grads_second_moment_unbiased_neg = grads_second_moment_neg / (1. - beta2**time)
-                
+
                 x_neg = x_neg - lr * grads_first_moment_unbiased_neg /(np.sqrt(grads_second_moment_unbiased_neg) + epsilon)
             # print(y_tmp,output_error_signal_c, output_error_signal_p)
             # projection step to ensure it is within bounded norm
             x_pos = np.clip(x_pos,x_min_pos,x_max_pos)
             x_neg = np.clip(x_neg,x_min_neg,x_max_neg)
-            
+
             # print("added: min max",np.amin(lr * (gradient_c - gradient_p)),np.amax(lr * (gradient_c - gradient_p)))
             # print("before: min max",np.amin(x),np.amax(x))
 
@@ -268,7 +272,7 @@ def kkt_for_lr(d,args,target_grad,theta_p,bias_p,
             if np.abs(prev_obj - kkt_obj) < 1e-7:
                 print("Enough convergence")
                 print("steps: {}  current norm (objective): {:.4f}  minimum norm: {:.4f}".format(step+1, kkt_obj, best_obj))
-    
+
                 break
 
             prev_obj = kkt_obj

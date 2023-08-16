@@ -27,13 +27,14 @@ parser.add_argument('--min_d2db', default=None, type=float, help='acceptable min
 parser.add_argument('--interp', default=None, type=float, help='linear interpolation between clean and target model')
 parser.add_argument('--valid_theta_err', default=None, type=float, help='minimum target model classification error')
 parser.add_argument('--selection_criteria', default='min_collateral', choices=['min_collateral', 'max_loss'], help='target model choice criteria')
+parser.add_argument('--save_all', action='store_true', help='if true, saves all valid generated target models')
 
 args = parser.parse_args()
 
 # if true, only select the best target classifier for each subpop
 # for subpop attack: it is the one with 0% acc on subpop (train) and minimal damage on rest of pop (train)
 # for indiscriminative attack, it is the one with highest train error
-select_best = True
+select_best = not args.save_all
 
 # whether poisoning attack is targeted or indiscriminative
 if args.dataset == "adult":
@@ -53,10 +54,8 @@ else:
     subpop = args.subpop
 
 if args.model_type == 'svm':
-    print("chosen model: svm")
     ScikitModel = svm_model
 else:
-    print("chosen model: lr")
     ScikitModel = logistic_model
 
 # reduce number of searches on target classifier
@@ -74,8 +73,6 @@ if min(Y_test)>-1:
     Y_test = 2*Y_test-1
 if min(Y_train) > -1:
     Y_train = 2*Y_train - 1
-
-print(np.amax(Y_train),np.amin(Y_train))
 
 max_iter = -1
 
@@ -97,16 +94,14 @@ orig_bias = model.intercept_
 train_acc = model.score(X_train,Y_train)
 test_acc = model.score(X_test,Y_test)
 
-print(orig_theta.shape,X_train.shape,orig_bias.shape,Y_train.shape)
 margins = Y_train*(X_train.dot(orig_theta) + orig_bias)
 train_loss, train_err = calculate_loss(margins)
+clean_train_loss = train_loss
 clean_total_train_loss = train_loss*X_train.shape[0]
-print("train_acc:{}, train loss:{}, train error:{}".format(train_acc,clean_total_train_loss,train_err))
 # test margins and loss
 margins = Y_test*(X_test.dot(orig_theta) + orig_bias)
 test_loss, test_err = calculate_loss(margins)
 clean_total_test_loss = test_loss*X_test.shape[0]
-print("test_acc:{}, test loss:{}, test error:{}".format(test_acc,clean_total_test_loss,test_err))
 
 if not subpop:
     ym = (-1)*Y_test
@@ -143,7 +138,6 @@ if not subpop:
     num_poisons = []
     for loss_quantile in quantile_tape:
         for tar_rep in rep_tape:
-            print(" ----- Loss Quantile {} and Repetition Number {} ------".format(loss_quantile, tar_rep))
             X_tar = []
             Y_tar = []
             margin_thresh = np.quantile(clean_margins, loss_quantile)
@@ -177,22 +171,18 @@ if not subpop:
             margins = Y_train_p*(X_train_p.dot(target_theta) + target_bias)
             train_loss, train_err = calculate_loss(margins)
             train_acc = model_p.score(X_train_p,Y_train_p)
-            print("poisoned train acc:{}, train loss:{}, train error:{}".format(train_acc,
-            train_loss,train_err))
             margins = Y_train*(X_train.dot(target_theta) + target_bias)
             train_loss, train_err = calculate_loss(margins)
             # use the regularized loss function
             train_loss = train_loss + (args.weight_decay/2) * np.linalg.norm(target_theta)**2
 
             train_acc = model_p.score(X_train,Y_train)
-            print("train acc:{}, train loss:{}, train error:{}".format(train_acc,train_loss,train_err))
             # test margins and loss
             # # here, we replace test loss with train loss because we cannot use test loss
             # # to prune the theta, see below
             margins = Y_test*(X_test.dot(target_theta) + target_bias)
             test_loss, test_err = calculate_loss(margins)
             test_acc = model_p.score(X_test,Y_test)
-            print("test acc:{}, test loss:{}, test error:{}".format(test_acc,test_loss,test_err))
             # improved attack actually generates the poisoned points based current model
             if args.improved:
                 clean_margins = Y_test*(X_test.dot(target_theta) + target_bias)
@@ -248,16 +238,6 @@ if not subpop:
     data_all['train_losses'] = train_losses
     data_all['test_errs'] = test_errs
     data_all['collat_errs'] = collat_errs
-    # check their shape
-    print(test_errs.shape)
-    print(collat_errs.shape)
-    print(train_losses.shape)
-    print(thetas.shape)
-    print(biases.shape)
-    print(pruned_test_errs.shape)
-    print(pruned_train_losses.shape)
-    print(pruned_thetas.shape)
-    print(pruned_biases.shape)
 
     data_pruned = {}
     data_pruned['thetas'] = pruned_thetas
@@ -290,11 +270,6 @@ if not subpop:
             data_best['train_losses'] = best_train_loss
             data_best['test_errs'] = best_test_err
             data_best['collat_errs'] = best_collat_err
-            print("best target classifier with target error rate {}".format(valid_theta_err))
-            print("Test Acc of best theta:",1-best_test_err)
-            print("Train Loss of best theta",(best_train_loss)*X_train.shape[0])
-            print("Total Train Loss of Clean Model",clean_total_train_loss)
-            print("Num of Poisoned Points used",best_num_poison)
 
             # choose the one with least train error
             if not os.path.isdir('files/target_classifiers/{}/{}'.format(dataset_name,args.model_type)):
@@ -344,7 +319,6 @@ elif args.improved:
     trn_sub_accs = []
     for i in range(len(subpop_cts)):
         subpop_ind, subpop_ct = subpop_inds[i], subpop_cts[i]
-        print("cluster ID and Size:",subpop_ind,subpop_ct)
         tst_subpop_inds = np.array([np.any(v == subpop_ind) for v in tst_all_subpops])
         trn_subpop_inds = np.array([np.any(v == subpop_ind) for v in trn_all_subpops])
         # indices of points belong to cluster
@@ -357,17 +331,8 @@ elif args.improved:
         trn_nsub_x, trn_nsub_y = X_train[trn_non_sbcl], Y_train[trn_non_sbcl]
         tst_sub_acc = model.score(tst_sub_x, tst_sub_y)
         trn_sub_acc = model.score(trn_sub_x, trn_sub_y)
-        # check the target and collateral damage info
-        print("----------Subpop Indx: {} ------".format(subpop_ind))
-        print('Clean Train Target Acc : %.3f' % trn_sub_acc)
-        print('Clean Train Collat Acc : %.3f' % model.score(trn_nsub_x,trn_nsub_y))
-        print('Clean Test Target Acc : %.3f' % tst_sub_acc)
-        print('Clean Test Collat Acc : %.3f' % model.score(tst_nsub_x, tst_nsub_y))
-        print("shape of subpopulations",trn_sub_x.shape,trn_nsub_x.shape,tst_sub_x.shape,tst_nsub_x.shape)
         trn_sub_accs.append(trn_sub_acc)
 
-    print(subpop_inds, subpop_cts)
-    # print(tst_sub_accs)
     # sort the subpop based on tst acc and choose 5 highest ones
     if args.dataset in ['adult','dogfish']:
         highest_5_inds = np.argsort(trn_sub_accs)[-3:]
@@ -375,12 +340,11 @@ elif args.improved:
         highest_5_inds = np.argsort(trn_sub_accs)[-4:]
     subpop_inds = subpop_inds[highest_5_inds]
     subpop_cts = subpop_cts[highest_5_inds]
-    print(subpop_inds, subpop_cts)
 
     # save the selected subpop info
     cls_fname = 'files/data/{}_{}_selected_subpops.txt'.format(dataset_name, args.model_type)
 
-    np.savetxt(cls_fname,np.array([subpop_inds,subpop_cts]))
+    np.savetxt(cls_fname,np.array([subpop_inds,subpop_cts]), fmt=u'%i'.encode('utf-8'))
 
     if dataset_name == 'dogfish':
         valid_theta_errs = [0.9]
@@ -390,10 +354,8 @@ elif args.improved:
     choose_best = True
 
     for valid_theta_err in valid_theta_errs:
-        print("#---------Selected Subpops------#")
         for i in range(len(subpop_cts)):
             subpop_ind, subpop_ct = subpop_inds[i], subpop_cts[i]
-            print("cluster ID and Size:",subpop_ind,subpop_ct)
             thetas = []
             biases = []
             train_losses = []
@@ -427,13 +389,7 @@ elif args.improved:
                 major_lab_tst = mode_tst.mode[0]
                 assert (tst_sub_y == major_lab_tst).all()
                 assert (trn_sub_y == major_lab_tst).all()
-            # check the target and collateral damage info
-            print("----------Subpop Indx: {}------".format(subpop_ind))
-            print('Clean Train Target Acc : %.3f' % model.score(trn_sub_x, trn_sub_y))
-            print('Clean Train Collat Acc : %.3f' % model.score(trn_nsub_x,trn_nsub_y))
-            print('Clean Test Target Acc : %.3f' % tst_sub_acc)
-            print('Clean Test Collat Acc : %.3f' % model.score(tst_nsub_x, tst_nsub_y))
-            print("shape of subpopulations",trn_sub_x.shape,trn_nsub_x.shape,tst_sub_x.shape,tst_nsub_x.shape)
+
             # dist to decision boundary
             trn_sub_dist = dist_to_boundary(model.coef_.reshape(-1),model.intercept_,trn_sub_x)
 
@@ -443,7 +399,6 @@ elif args.improved:
                 pois_rate = pois_rates[kk]
                 x_train_copy, y_train_copy = np.copy(X_train), np.copy(Y_train)
                 pois_ct = int(pois_rate * X_train.shape[0])
-                print("Poisoned Point:{}, Poisoned Ratio:{},Total Size:{}".format(pois_ct,pois_rate,X_train.shape[0]))
                 if pois_ct <= trn_sub_x.shape[0]:
                     pois_inds = np.argsort(trn_sub_dist)[:pois_ct]
                 else:
@@ -456,8 +411,6 @@ elif args.improved:
                     whole_y = np.concatenate((y_train_copy,pois_y),axis=0)
                     whole_x = np.concatenate((x_train_copy,pois_x),axis=0)
                 else:
-                    print(trn_sbcl)
-                    print(trn_sbcl.shape)
                     replace_idx = trn_sbcl[pois_inds]
                     y_train_copy[replace_idx] = -y_train_copy[replace_idx]
                     whole_x, whole_y = x_train_copy, y_train_copy
@@ -477,12 +430,6 @@ elif args.improved:
                 trn_sub_acc = model_p.score(trn_sub_x, trn_sub_y)
                 tst_sub_acc = model_p.score(tst_sub_x, tst_sub_y)
                 trn_nsub_acc = model_p.score(trn_nsub_x,trn_nsub_y)
-                print("Total Acc:",pois_acc)
-                print()
-                print('Train Target Acc : %.3f' % trn_sub_acc)
-                print('Train Collat Acc : %.3f' % trn_nsub_acc)
-                print('Test Target Acc : %.3f' % tst_sub_acc)
-                print('Test Collat Acc : %.3f' % model_p.score(tst_nsub_x, tst_nsub_y))
 
                 # theta and bias of the model
                 target_theta, target_bias = model_p.coef_.reshape(-1), model_p.intercept_
@@ -514,10 +461,10 @@ elif args.improved:
                         best_theta = target_theta
                         best_bias = target_bias[0]
                         best_num_poisons = pois_ct
-                        if choose_best:
-                            print("updated lowest train loss is:",train_loss)
-                        else:
-                            print("updated highest train loss is:",train_loss)
+                        # if choose_best:
+                        #     print("updated lowest train loss is:",train_loss)
+                        # else:
+                        #     print("updated highest train loss is:",train_loss)
 
             thetas = np.array(thetas)
             biases = np.array(biases)
@@ -527,15 +474,7 @@ elif args.improved:
             data_best = {}
             data_best['thetas'] = best_theta
             data_best['biases'] = best_bias
-            print("Acc of best theta and bias:")
-            margins = tst_sub_y*(tst_sub_x.dot(best_theta) + best_bias)
-            _, test_err = calculate_loss(margins)
-            print("Target Test Acc of best theta:",1-test_err)
-            margins = tst_nsub_y*(tst_nsub_x.dot(best_theta) + best_bias)
-            _, test_err = calculate_loss(margins)
-            print("Collat Test Acc of best theta:",1-test_err)
-            print("Training Loss of Best Theta:",min_train_loss*X_train.shape[0])
-            print("Num of Poisons:",best_num_poisons)
+
             # save all the target thetas
             if select_best:
                 if not os.path.isdir('files/target_classifiers/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type)):
@@ -569,7 +508,6 @@ else:
     n_bad = 0
     for i in range(len(subpop_cts)):
         subpop_ind, subpop_ct = subpop_inds[i], subpop_cts[i]
-        print("subpop ID and Size:", subpop_ind, subpop_ct)
         # indices of points belong to subpop
         tst_subpop_inds = np.array([np.any(v == subpop_ind) for v in tst_all_subpops])
         trn_subpop_inds = np.array([np.any(v == subpop_ind) for v in trn_all_subpops])
@@ -589,12 +527,6 @@ else:
             trn_sub_acc = model.score(trn_sub_x, trn_sub_y)
 
         # check the target and collateral damage info
-        print("----------Subpop Indx: {} ------".format(subpop_ind))
-        print('Clean Train Target Acc : %.3f' % trn_sub_acc)
-        print('Clean Train Collat Acc : %.3f' % model.score(trn_nsub_x,trn_nsub_y))
-        print('Clean Test Target Acc : %.3f' % tst_sub_acc)
-        print('Clean Test Collat Acc : %.3f' % model.score(tst_nsub_x, tst_nsub_y))
-        print("shape of subpopulations",trn_sub_x.shape,trn_nsub_x.shape,tst_sub_x.shape,tst_nsub_x.shape)
         trn_sub_accs.append(trn_sub_acc)
 
     # sort the subpop based on tst acc and choose 5 highest ones
@@ -608,12 +540,11 @@ else:
         highest_5_inds = np.argsort(trn_sub_accs)[-3:]
     subpop_inds = subpop_inds[highest_5_inds]
     subpop_cts = subpop_cts[highest_5_inds]
-    print(subpop_inds, subpop_cts)
 
     # save the selected subpop info
     cls_fname = 'files/data/{}_{}_{}_selected_subpops.txt'.format(
         dataset_name, args.model_type, subpop_type)
-    np.savetxt(cls_fname,np.array([subpop_inds,subpop_cts]))
+    np.savetxt(cls_fname,np.array([subpop_inds,subpop_cts]), fmt=u'%i'.encode('utf-8'))
 
     if args.valid_theta_err is not None:
         valid_theta_errs = [args.valid_theta_err]
@@ -638,11 +569,10 @@ else:
     trn_df = pd.read_csv(trn_desc_fname)
 
     for valid_theta_err in valid_theta_errs:
-        print("#---------Selected Subpops------#")
         for i in range(len(subpop_cts)):
             subpop_ind, subpop_ct = subpop_inds[i], subpop_cts[i]
             trn_df.loc[subpop_ind, 'Flip Num Poisons'] = float('inf')
-            print("cluster ID and Size:",subpop_ind,subpop_ct)
+            trn_df.loc[subpop_ind, 'Min Loss Diff'] = float('inf')
             thetas = []
             biases = []
             train_losses = []
@@ -675,14 +605,6 @@ else:
                 assert (tst_sub_y == major_lab_tst).all()
                 assert (trn_sub_y == major_lab_tst).all()
 
-            # check the target and collateral damage info
-            print("----------Subpop Indx: {}------".format(subpop_ind))
-            print('Clean Train Target Acc : %.3f' % model.score(trn_sub_x, trn_sub_y))
-            print('Clean Train Collat Acc : %.3f' % model.score(trn_nsub_x,trn_nsub_y))
-            print('Clean Test Target Acc : %.3f' % tst_sub_acc)
-            print('Clean Test Collat Acc : %.3f' % model.score(tst_nsub_x, tst_nsub_y))
-            print("shape of subpopulations",trn_sub_x.shape,trn_nsub_x.shape,tst_sub_x.shape,tst_nsub_x.shape)
-
             best_theta = None
             best_bias = None
 
@@ -692,13 +614,11 @@ else:
             for loss_quantile in quantile_tape:
                 rep_tape_tmp = rep_tape[:] # copies list, so we can modify it
                 for tar_rep in rep_tape_tmp:
-                    print(" ----- Loss Quantile {} and Repetition Number {} ------".format(loss_quantile, tar_rep))
                     X_tar = []
                     Y_tar = []
                     margin_thresh = np.quantile(clean_margins, loss_quantile)
                     for i in range(len(y_list)):
                         active_cur = np.logical_and(tst_sub_y == y_list[i],clean_margins <= margin_thresh)
-                        print("valid active instance num: {}, total instance num: {}".format(np.sum(active_cur),active_cur.shape[0]))
                         X_tar_cur = tst_sub_x[active_cur,:]
                         y_tar_cur = ym[active_cur]
                         # y_orig_cur = Y_test[active_cur]
@@ -707,11 +627,10 @@ else:
                         # Y_orig = Y_orig.append(y_orig_cur)
                     X_tar = np.concatenate(X_tar, axis=0)
                     Y_tar = np.concatenate(Y_tar, axis=0)
-                    print("[before] shape of X_tar, Y_tar:",X_tar.shape,Y_tar.shape)
+
                     # repeat points
                     X_tar = np.repeat(X_tar, tar_rep, axis=0)
                     Y_tar = np.repeat(Y_tar, tar_rep, axis=0)
-                    print("[after] shape of X_tar, Y_tar:",X_tar.shape,Y_tar.shape)
                     X_train_p = np.concatenate((X_train,X_tar),axis = 0)
                     Y_train_p = np.concatenate((Y_train,Y_tar),axis = 0)
                     # build another model for poisoned points
@@ -731,13 +650,6 @@ else:
                     trn_nsub_acc = model_p.score(trn_nsub_x,trn_nsub_y)
                     tst_sub_acc = model_p.score(tst_sub_x, tst_sub_y)
                     tst_nsub_acc = model_p.score(tst_nsub_x, tst_nsub_y)
-                    print("Total Test Acc:",train_acc)
-                    print("Total Test Acc:",test_acc)
-                    print()
-                    print('Train Target Acc : %.3f' % trn_sub_acc)
-                    print('Train Collat Acc : %.3f' % trn_nsub_acc)
-                    print('Test Target Acc : %.3f' % tst_sub_acc)
-                    print('Test Collat Acc : %.3f' % tst_nsub_acc)
 
                     # theta and bias of the model
                     target_theta, target_bias = model_p.coef_.reshape(-1), model_p.intercept_
@@ -758,38 +670,26 @@ else:
                     _, test_err = calculate_loss(margins)
                     collat_errs.append(test_err)
 
-                    # just to see how much improvemet we can have using this adaptive form
-                    # clean_margins = trn_sub_y*(trn_sub_x.dot(target_theta) + target_bias)
-
-                    # if trn_sub_acc == 0:
-                    #     if trn_nsub_acc > best_collat_acc:
-                    #         best_collat_acc = trn_nsub_acc
-                    #         best_theta = target_theta
-                    #         best_bias = target_bias[0]
-                    #         print("updated best collat train acc is:",trn_nsub_acc)
-
                     # choose best valid classifier with lowest loss on clean data
                     assert len(Y_tar) == len(X_train_p) - len(X_train)
 
                     acc_threshold = 1 - valid_theta_err
 
                     if tst_sub_acc <= acc_threshold:
-                        if len(Y_tar) < trn_df.loc[subpop_ind, 'Flip Num Poisons']:
-                            trn_df.loc[subpop_ind, 'Flip Num Poisons'] = len(Y_tar)
+                        trn_df.loc[subpop_ind, 'Min Loss Diff'] = min(trn_df.loc[subpop_ind, 'Min Loss Diff'], train_loss - clean_train_loss)
+                        trn_df.loc[subpop_ind, 'Flip Num Poisons'] = min(trn_df.loc[subpop_ind, 'Flip Num Poisons'], len(Y_tar))
                         if args.selection_criteria == 'min_collateral':
                             if train_loss < min_train_loss:
                                 min_train_loss = train_loss
                                 best_theta = np.copy(target_theta)
                                 best_bias = np.copy(target_bias[0])
                                 best_num_poisons = np.copy(len(Y_tar))
-                                print("updated lowest train loss is:",train_loss)
                         elif args.selection_criteria == 'max_loss':
                             if test_target_loss > max_test_target_loss:
                                 max_test_target_loss = test_target_loss
                                 best_theta = np.copy(target_theta)
                                 best_bias = np.copy(target_bias[0])
                                 best_num_poisons = np.copy(len(Y_tar))
-                                print("updated lowest train loss is:",train_loss)
 
                     # if we never found a successful target model, try this:
                     if (best_theta is None) and (loss_quantile == quantile_tape[-1]) and (tar_rep == rep_tape_tmp[-1]):
@@ -815,38 +715,29 @@ else:
                 best_theta = args.interp*best_theta + (1. - args.interp)*orig_theta
                 best_bias = args.interp*best_bias + (1. - args.interp)*orig_bias
 
-            print("Acc of best theta and bias:")
-            margins = tst_sub_y*(tst_sub_x.dot(best_theta) + best_bias)
-            test_loss, test_err = calculate_loss(margins)
-            print("Target Test Loss of best theta:", )
-            margins = tst_sub_y*(tst_sub_x.dot(best_theta) + best_bias)
-            _, test_err = calculate_loss(margins)
-            print("Target Train Acc of best theta:",1-test_err)
-            margins = tst_nsub_y*(tst_nsub_x.dot(best_theta) + best_bias)
-            _, test_err = calculate_loss(margins)
-            print("Collat Train Acc of best theta:",1-test_err)
-            print("Training Loss of Best Theta:",min_train_loss*X_train.shape[0])
-            print("Num of Poisons:",best_num_poisons)
-
             # discard non-optimal thetas
             if prune_theta:
-                # use the one with lowest acc and lowest loss on train data
-                # best theta is selected as one satisfy the attack goal and lowest loss on clean train data
-                negtest_errs = [-x for x in test_errs]
-                iisort = np.argsort(np.array(negtest_errs))
-                # pruned all the thetas
-                iisort_pruned = []
-                ids_remain = []
-                min_train_loss = 1e9
-                for ii in iisort:
-                    if train_losses[ii] < min_train_loss:
-                        iisort_pruned.append(ii)
-                        min_train_loss = train_losses[ii]
-                pruned_thetas = thetas[iisort_pruned]
-                pruned_biases = biases[iisort_pruned]
-                pruned_train_losses = train_losses[iisort_pruned]
-                pruned_test_errs = test_errs[iisort_pruned]
-                prunned_collat_errs = collat_errs[iisort_pruned]
+                # prune by buckets:
+                # for each accuracy threshold from acc_threshold...1.0,
+                # take target theta with lowest loss on clean dataset
+
+                ix_pruned = []
+
+                acc_step = 0.05
+                acc_buckets = np.arange(acc_threshold, 1.1, acc_step) # go a little over to include all buckets
+                bucket_ids = np.digitize(test_errs, acc_buckets) # satisfies acc_buckets[i-1] <= err < acc_buckets[i]
+                bucket_ids = bucket_ids[bucket_ids != 0] # remove thetas below error threshold
+                nonempty_buckets = np.unique(bucket_ids)
+                for bucket_id in nonempty_buckets:
+                    bucket_ix = np.where(bucket_ids == bucket_id)[0]
+
+                    # save model from bucket with lowest loss on clean dataset
+                    sv_ix = bucket_ix[np.argmin(train_losses[bucket_ix])]
+                    ix_pruned.append(sv_ix)
+
+                thetas = thetas[ix_pruned]
+                biases = biases[ix_pruned]
+
 
             data_all = {}
             data_all['thetas'] = thetas
@@ -856,15 +747,13 @@ else:
             data_best['biases'] = best_bias
 
             # save all the target thetas
+            if not os.path.isdir('files/target_classifiers/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type)):
+                os.makedirs('files/target_classifiers/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type))
             if select_best:
-                if not os.path.isdir('files/target_classifiers/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type)):
-                    os.makedirs('files/target_classifiers/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type))
                 file_all = open('files/target_classifiers/{}/{}/{}/orig_best_theta_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type, int(subpop_ind),valid_theta_err), 'wb')
                 pickle.dump(data_best, file_all,protocol=2)
                 file_all.close()
             else:
-                if not os.path.isdir('files/target_classifiers/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type)):
-                    os.makedirs('files/target_classifiers/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type))
                 file_all = open('files/target_classifiers/{}/{}/{}/orig_thetas_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type, int(subpop_ind),valid_theta_err), 'wb')
                 pickle.dump(data_all, file_all,protocol=2)
                 file_all.close()

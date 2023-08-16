@@ -3,13 +3,8 @@
 valid_theta_err=1.0               # target model subpopulation error requirement
 err_thresh=0.5                    # attack success requirement
 
-mkdir -p "files/subpop_descs"
-mkdir -p "files/subpop_descs/semantic"
-mkdir -p "files/attack_anim/"
-mkdir -p "files/attack_anim/adult"
-
-# run experiments based on subpop_ratio
-dst_fname="files/subpop_descs/semantic/adult_trn_feature_desc_all.csv"
+mkdir -p "files/out/adult"
+dst_fname="files/out/adult/adult_trn_feature_desc_all.csv"
 if !(test -f "${dst_fname}"); then
   # clear the stage
   rm -rf files/kkt_models \
@@ -48,7 +43,7 @@ if !(test -f "${dst_fname}"); then
   fi
 
   mv files/online_models/adult/svm/feature/12/orig/1/*.npz \
-    "files/attack_anim/adult/"
+    "files/out/adult/"
 
   # move everything into a safe location
   mv "files/data/adult_trn_feature_desc.csv" $dst_fname

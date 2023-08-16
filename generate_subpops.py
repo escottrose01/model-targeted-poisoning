@@ -206,53 +206,54 @@ for i in range(len(subpop_cts)):
     trn_sub_x, trn_sub_y  = X_train[trn_sbcl], Y_train[trn_sbcl]
     trn_nsub_x, trn_nsub_y = X_train[trn_non_sbcl], Y_train[trn_non_sbcl]
 
-    trn_frac_pos = np.sum(trn_sub_y == 1) / trn_sub_x.shape[0]
-    tst_frac_pos = np.sum(trn_sub_y == 1) / tst_sub_x.shape[0]
+    # trn_frac_pos = np.sum(trn_sub_y == 1) / trn_sub_x.shape[0]
+    # tst_frac_pos = np.sum(trn_sub_y == 1) / tst_sub_x.shape[0]
 
     trn_df.loc[i, 'Total Pts'] = X_train.shape[0]
     trn_df.loc[i, 'Subpop Pts'] = trn_sub_x.shape[0]
     trn_df.loc[i, 'Num Positive'] = np.sum(trn_sub_y == 1)
     trn_df.loc[i, 'Num Negative'] = np.sum(trn_sub_y == -1)
     trn_df.loc[i, 'Type'] = subpop_type
-    trn_df.loc[i, 'Gini Impurity'] = 1. - (trn_frac_pos**2 + (1. - trn_frac_pos)**2)
 
-    if not args.lazy:
-        # these are NOT cluster labels used in clustering subpop!
-        # always two "clusters", either subpop or !subpop
-        trn_dummy_cluster_labels = np.where(trn_subpop_inds, np.zeros(X_train.shape[0]), np.ones(X_train.shape[0]))
-        tst_dummy_cluster_labels = np.where(tst_subpop_inds, np.zeros(X_test.shape[0]), np.ones(X_test.shape[0]))
-        trn_dummy_svm_labels = 2 * trn_dummy_cluster_labels - 1
-        tst_dummy_svm_labels = 2 * tst_dummy_cluster_labels - 1
+    # trn_df.loc[i, 'Gini Impurity'] = 1. - (trn_frac_pos**2 + (1. - trn_frac_pos)**2)
 
-        trn_silhouettes = sklearn.metrics.silhouette_samples(X_train, trn_dummy_cluster_labels)
-
-        trn_df.loc[i, 'Avg Silhouette'] = np.mean(trn_silhouettes[trn_subpop_inds])
-        trn_df.loc[i, 'Davies Bouldin'] = sklearn.metrics.davies_bouldin_score(X_train, trn_dummy_cluster_labels)
-        trn_df.loc[i, 'Avg Distance Ratio'] = np.mean(pdist(trn_sub_x)) / np.mean(cdist(trn_sub_x, trn_nsub_x))
-        trn_df.loc[i, 'Linear Sep Score'] = sklearn.svm.LinearSVC(C=10000.0, max_iter=2500).fit(X_train, trn_dummy_svm_labels).score(trn_sub_x, trn_dummy_svm_labels[trn_sbcl]) # score assuming |subpop| << |all data|
-    else:
-        trn_df.loc[i, 'Avg Silhouette'] = np.nan
-        trn_df.loc[i, 'Davies Bouldin'] = np.nan
-        trn_df.loc[i, 'Avg Distance Ratio'] = np.nan
-        trn_df.loc[i, 'Linear Sep Score'] = np.nan
+    # if not args.lazy:
+    #     # these are NOT cluster labels used in clustering subpop!
+    #     # always two "clusters", either subpop or !subpop
+    #     trn_dummy_cluster_labels = np.where(trn_subpop_inds, np.zeros(X_train.shape[0]), np.ones(X_train.shape[0]))
+    #     tst_dummy_cluster_labels = np.where(tst_subpop_inds, np.zeros(X_test.shape[0]), np.ones(X_test.shape[0]))
+    #     trn_dummy_svm_labels = 2 * trn_dummy_cluster_labels - 1
+    #     tst_dummy_svm_labels = 2 * tst_dummy_cluster_labels - 1
+    #
+    #     trn_silhouettes = sklearn.metrics.silhouette_samples(X_train, trn_dummy_cluster_labels)
+    #
+    #     trn_df.loc[i, 'Avg Silhouette'] = np.mean(trn_silhouettes[trn_subpop_inds])
+    #     trn_df.loc[i, 'Davies Bouldin'] = sklearn.metrics.davies_bouldin_score(X_train, trn_dummy_cluster_labels)
+    #     trn_df.loc[i, 'Avg Distance Ratio'] = np.mean(pdist(trn_sub_x)) / np.mean(cdist(trn_sub_x, trn_nsub_x))
+    #     trn_df.loc[i, 'Linear Sep Score'] = sklearn.svm.LinearSVC(C=10000.0, max_iter=2500).fit(X_train, trn_dummy_svm_labels).score(trn_sub_x, trn_dummy_svm_labels[trn_sbcl]) # score assuming |subpop| << |all data|
+    # else:
+    #     trn_df.loc[i, 'Avg Silhouette'] = np.nan
+    #     trn_df.loc[i, 'Davies Bouldin'] = np.nan
+    #     trn_df.loc[i, 'Avg Distance Ratio'] = np.nan
+    #     trn_df.loc[i, 'Linear Sep Score'] = np.nan
 
     if subpop_type == 'feature':
         trn_df.loc[i, 'Semantic Info'] = str(descs[i]).replace("'", '"')
 
     if generate_tst_desc:
-        tst_silhouettes = sklearn.metrics.silhouette_samples(X_test, tst_dummy_cluster_labels)
+        # tst_silhouettes = sklearn.metrics.silhouette_samples(X_test, tst_dummy_cluster_labels)
         tst_df.loc[i, 'Total Pts'] = X_test.shape[0]
         tst_df.loc[i, 'Subpop Pts'] = tst_sub_x.shape[0]
         tst_df.loc[i, 'Num Positive'] = np.sum(tst_sub_y == 1)
         tst_df.loc[i, 'Num Negative'] = np.sum(tst_sub_y == -1)
         tst_df.loc[i, 'Type'] = subpop_type
-        tst_df.loc[i, 'Gini Impurity'] = 1. - (tst_frac_pos**2 + (1. - tst_frac_pos)**2)
-        tst_df.loc[i, 'Avg Silhouette'] = np.mean(tst_silhouettes[tst_subpop_inds])
-        tst_df.loc[i, 'Davies Bouldin'] = sklearn.metrics.davies_bouldin_score(X_test, tst_dummy_cluster_labels)
-        tst_df.loc[i, 'Avg Distance Ratio'] = np.mean(pdist(tst_sub_x)) / np.mean(cdist(tst_sub_x, tst_nsub_x))
-        tst_df.loc[i, 'Linear Sep Score'] = sklearn.svm.LinearSVC(C=10000.0).fit(X_test, tst_dummy_svm_labels).score(test_sub_x, tst_dummy_svm_labels[tst_sbcl]) # score assuming |subpop| << |all data|
-        if subpop_type == 'feature':
-            tst_df.loc[i, 'Semantic Info'] = str(descs[i]).replace("'", '"')
+        # tst_df.loc[i, 'Gini Impurity'] = 1. - (tst_frac_pos**2 + (1. - tst_frac_pos)**2)
+        # tst_df.loc[i, 'Avg Silhouette'] = np.mean(tst_silhouettes[tst_subpop_inds])
+        # tst_df.loc[i, 'Davies Bouldin'] = sklearn.metrics.davies_bouldin_score(X_test, tst_dummy_cluster_labels)
+        # tst_df.loc[i, 'Avg Distance Ratio'] = np.mean(pdist(tst_sub_x)) / np.mean(cdist(tst_sub_x, tst_nsub_x))
+        # tst_df.loc[i, 'Linear Sep Score'] = sklearn.svm.LinearSVC(C=10000.0).fit(X_test, tst_dummy_svm_labels).score(test_sub_x, tst_dummy_svm_labels[tst_sbcl]) # score assuming |subpop| << |all data|
+        # if subpop_type == 'feature':
+        #     tst_df.loc[i, 'Semantic Info'] = str(descs[i]).replace("'", '"')
 
 if dataset_name == 'synthetic':
     with open('files/data/synthetic.json') as f:
