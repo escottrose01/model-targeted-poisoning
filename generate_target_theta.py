@@ -726,8 +726,8 @@ else:
                 acc_step = 0.05
                 acc_buckets = np.arange(acc_threshold, 1.1, acc_step) # go a little over to include all buckets
                 bucket_ids = np.digitize(test_errs, acc_buckets) # satisfies acc_buckets[i-1] <= err < acc_buckets[i]
-                bucket_ids = bucket_ids[bucket_ids != 0] # remove thetas below error threshold
                 nonempty_buckets = np.unique(bucket_ids)
+                nonempty_buckets = nonempty_buckets[nonempty_buckets != 0] # remove thetas below error threshold
                 for bucket_id in nonempty_buckets:
                     bucket_ix = np.where(bucket_ids == bucket_id)[0]
 
