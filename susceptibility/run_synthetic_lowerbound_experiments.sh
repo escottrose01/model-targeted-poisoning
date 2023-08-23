@@ -40,7 +40,7 @@ for seed in "${seeds[@]}"; do
           files/data/*_selected_subpops.txt
 
         # generate the dataset
-        python generate_dataset.py --flip_y $flip_y --class_sep $class_sep --rand_seed $seed > /dev/null 2>&1
+        python generate_dataset.py --flip_y $flip_y --class_sep $class_sep --rand_seed $seed > log.txt 2> logerr.txt
         if [ $? == 0 ]; then
           echo "generated dataset"
         else
@@ -49,7 +49,7 @@ for seed in "${seeds[@]}"; do
         fi
 
         # generate subpopulations
-        python generate_subpops.py --dataset synthetic --lazy --subpop_type cluster --num_subpops 16 > /dev/null 2>&1
+        python generate_subpops.py --dataset synthetic --lazy --subpop_type cluster --num_subpops 16 > log.txt 2> logerr.txt
         if [ $? == 0 ]; then
           echo "generated subpops"
         else
@@ -60,11 +60,22 @@ for seed in "${seeds[@]}"; do
         # generate target models
         python generate_target_theta.py --dataset synthetic --model_type svm \
           --subpop_type cluster --weight_decay $wdecay --save_all \
-          --valid_theta_err $valid_theta_err --selection_criteria $model_selection --all_subpops > /dev/null 2>&1
+          --valid_theta_err $valid_theta_err --selection_criteria $model_selection --all_subpops > log.txt 2> logerr.txt
         if [ $? == 0 ]; then
           echo "generated target theta"
         else
           echo "target theta gen failed! exiting . . ."
+          exit
+        fi
+
+        # compute lower bounds for subpop attacks
+        python generate_subpop_lowerbounds.py --model_type svm --dataset synthetic \
+          --weight_decay $wdecay --subpop_type cluster --valid_theta_err $valid_theta_err \
+          > log.txt 2> logerr.txt
+        if [ $? == 0 ]; then
+          echo "computed lower bounds"
+        else
+          echo "lower bound computation failed! exiting . . ."
           exit
         fi
 
@@ -84,7 +95,7 @@ for seed in "${seeds[@]}"; do
             python susceptibility/run_lowerbound_experiments.py --dataset synthetic \
                 --model_type svm --subpop_type cluster --weight_decay $wdecay \
                 --require_acc --err_threshold $err_thresh --budget_limit 2000 \
-                --target_valid_theta_err $valid_theta_err  --subpop_id $subpop_id > /dev/null 2>&1
+                --target_valid_theta_err $valid_theta_err  --subpop_id $subpop_id > log.txt 2> logerr.txt
             if [ $? == 0 ]; then
               echo -n " ${subpop_id}"
               cp "files/data/synthetic_trn_cluster_desc.csv" $sv_fname
