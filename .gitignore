@@ -5,3 +5,5 @@ files/data/*.npz
 *.pyc
 files/*
 gurobi.env
+log.txt
+logerr.txt
