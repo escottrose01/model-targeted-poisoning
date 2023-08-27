@@ -11,7 +11,7 @@ from sklearn.utils.multiclass import unique_labels
 from sklearn.metrics import hinge_loss
 from sklearn import linear_model, svm
 
-from utils import svm_model, logistic_model, calculate_loss, dist_to_boundary, get_subpop_inds, proj_constraint_size
+from utils import svm_model, logistic_model, calculate_loss, dist_to_boundary, get_subpop_inds, proj_constraint_size, check_boundary_in_constraint_set
 import pickle
 import argparse
 from datasets import load_dataset
@@ -145,9 +145,9 @@ class CustomLinearModel(BaseEstimator, ClassifierMixin):
         return np.sum(y_pred == y) / X.shape[0]
 
 
-def subpop_lower_bound(X, y, X_sp, Cr):
+def subpop_lower_bound(X, y, X_sp, Cr, x_lim_tuples):
     # assumption: decision boundary lies within constraint set
-    # this assumption may fail when model is overparameterized
+    # this assumption may fail when model is overregularized
     # or when classification task is not well-posed
 
     model = CustomLinearModel(Cr=Cr, max_iter=int(1e6)).fit(X, y)
@@ -159,13 +159,20 @@ def subpop_lower_bound(X, y, X_sp, Cr):
         proj_constraint_size(model.coef_, x_lim_tuples[1]),
     )
 
-    model.fit(X, y, force_pos=X_sp)
-    y_dec = model.decision_function(X)
-    poison_loss = hinge_loss(y, y_dec)
+    bound_valid = check_boundary_in_constraint_set(model.coef_, model.intercept_, x_lim_tuples[0]) \
+                    or check_boundary_in_constraint_set(model.coef_, model.intercept_, x_lim_tuples[1])
 
-    return X.shape[0] * (poison_loss - clean_loss) / constraint_size
+    try:
+        if bound_valid:
+            model.fit(X, y, force_pos=X_sp)
+            y_dec = model.decision_function(X)
+            poison_loss = hinge_loss(y, y_dec)
+            return max(0, X.shape[0] * (poison_loss - clean_loss) / constraint_size)
+        else: return 0
+    except cp.error.SolverError:
+        return 0
 
-def subpop_lower_bound_quantile(X, y, X_sp, Cr, r=1.0):
+def subpop_lower_bound_quantile(X, y, X_sp, Cr, x_lim_tuples, r=1.0):
     clean_model = CustomLinearModel(Cr=Cr, max_iter=int(1e6)).fit(X, y)
     y_dec = clean_model.decision_function(X)
     clean_loss = hinge_loss(y, y_dec)
@@ -176,15 +183,23 @@ def subpop_lower_bound_quantile(X, y, X_sp, Cr, r=1.0):
     )
 
     bounds = np.zeros(X_sp.shape[0])
+    model = CustomLinearModel(Cr=Cr, max_iter=int(1e6))
+    bound_valid = check_boundary_in_constraint_set(clean_model.coef_, clean_model.intercept_, x_lim_tuples[0]) \
+                    or check_boundary_in_constraint_set(clean_model.coef_, clean_model.intercept_, x_lim_tuples[1])
+
     for i, x in enumerate(X_sp):
-        model = CustomLinearModel(Cr=Cr, max_iter=int(1e6))
-        model.fit(X, y, force_pos=x)
-        y_dec = model.decision_function(X)
-        poison_loss = hinge_loss(y, y_dec)
-        bounds[i] = X.shape[0] * (poison_loss - clean_loss) / constraint_size
+        try:
+            if bound_valid:
+                model.fit(X, y, force_pos=x)
+                y_dec = model.decision_function(X)
+                poison_loss = hinge_loss(y, y_dec)
+                bounds[i] = max(0, X.shape[0] * (poison_loss - clean_loss) / constraint_size)
+            else: bounds[i] = 0
+        except cp.error.SolverError:
+            bounds[i] = 0
 
     bounds = np.sort(bounds)
-    return bounds[int(np.ceil(r * X_sp.shape[0] - 1e-6))] # subtract off small delta to get true bound
+    return bounds[int(np.ceil(r * X_sp.shape[0]) - 1e-6)] # subtract off small delta to get true bound
 
 X_train_cp, y_train_cp = np.copy(X_train), np.copy(y_train)
 
@@ -211,8 +226,8 @@ for kk, subpop_ind in enumerate(subpop_inds):
         assert (tst_sub_y == major_lab_tst).all()
         assert (trn_sub_y == major_lab_tst).all()
 
-    subpop_lb = subpop_lower_bound(X_train, y_train, tst_sub_x, args.weight_decay)
-    subpop_lb_quantile = subpop_lower_bound_quantile(X_train, y_train, tst_sub_x, args.weight_decay, valid_theta_err)
+    subpop_lb = subpop_lower_bound(X_train, y_train, tst_sub_x, args.weight_decay, x_lim_tuples)
+    subpop_lb_quantile = subpop_lower_bound_quantile(X_train, y_train, tst_sub_x, args.weight_decay, x_lim_tuples, r=valid_theta_err)
 
     trn_df.loc[subpop_ind, 'Subpop Lower Bound'] = subpop_lb
     trn_df.loc[subpop_ind, 'Subpop Quantile Lower Bound'] = subpop_lb_quantile

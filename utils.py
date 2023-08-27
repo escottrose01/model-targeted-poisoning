@@ -124,6 +124,13 @@ def proj_constraint_size(theta, x_lim_tuple):
     x_min, x_max = x_lim_tuple
     return np.sum(np.maximum(x_min * theta, x_max * theta)) - np.sum(np.minimum(x_min * theta, x_max * theta))
 
+def check_boundary_in_constraint_set(theta, bias, x_lim_tuple):
+    # can solve in closed form, but for generality use cvx
+    x_min, x_max = x_lim_tuple
+    margin_min = np.sum(np.minimum(x_min * theta, x_max * theta)) + bias
+    margin_max = np.sum(np.maximum(x_min * theta, x_max * theta)) + bias
+    return margin_min <= 0 <= margin_max
+
 def proj_separability(theta, X, y):
     neg = y == -1
     pos = y == 1

@@ -15,8 +15,8 @@ err_thresh=0.5                    # attack success requirement
 model_selection="min_collateral"  # select target model candidate which minimizes collateral damage
 wdecay=5e-4                       # model regularization parameter
 
-seps=($(seq 0.0 1.0 3.00))        # class separation dataset parameter
-flips=($(seq 0.0 0.2 0.6))        # label noise dataset parameter
+seps=($(seq 0.0 0.25 3.00))        # class separation dataset parameter
+flips=($(seq 0.0 0.1 1.0))        # label noise dataset parameter
 seeds=($(seq 1 10))               # dataset seed
 
 mkdir -p "files/out/synthetic_lowerbound"

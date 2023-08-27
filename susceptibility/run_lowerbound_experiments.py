@@ -366,6 +366,8 @@ for valid_theta_err in valid_theta_errs:
             all_heuristic_lower_bounds.append(lower_bounds.item(0) if lower_bounds.size > 0 else best_lower_bound)
 
         # step 2: perform online attack using induced models as target models. Save lower bounds and attack info.
+        # since the only purpose of this step is to produce a more optimal attack, we set a more restrictive budget.
+        args.budget_limit = min(map(len, all_poisons_y))
         for target_theta, target_bias in zip(all_theta_atk, all_bias_atk):
             poisons_all = {}
             poisons_all["X_poison"] = X_train
@@ -446,10 +448,12 @@ for valid_theta_err in valid_theta_errs:
             all_best_lower_bounds.append(best_lower_bound)
             all_heuristic_lower_bounds.append(lower_bounds.item(0) if lower_bounds.size > 0 else best_lower_bound)
 
+        assert len(all_poisons_y) == 2*len(thetas), 'failed to record all attacks so far for MTP'
+
         # step 3: perform kkt attacks using label-flip target models. Save attack info (but do not generate lower bounds)
         # note that zip() truncates to smallest iterable, so can just pass all_best_lower_bounds and num_online_poisons
         num_online_poisons = list(map(len, all_poisons_y))
-        for target_theta, target_bias, lower_bound, best_atk_poisons in zip(thetas, biases, all_best_lower_bounds, num_online_poisons):
+        for target_theta, target_bias, lower_bound, best_atk_poisons in zip(all_theta_p, all_bias_p, all_best_lower_bounds, num_online_poisons):
             # attack parameters
             percentile = 90
             loss_percentile = 90
@@ -490,7 +494,9 @@ for valid_theta_err in valid_theta_errs:
 
             # use lower bounds as basis for kkt fractions
             kkt_fraction_res = 4
-            kkt_fractions = np.linspace(float(lower_bound) / float(best_atk_poisons), kkt_fraction_res)
+            min_frac = float(lower_bound) / float(X_train.shape[0])
+            max_frac = float(best_atk_poisons) / float(X_train.shape[0])
+            kkt_fractions = np.linspace(min_frac, max_frac, kkt_fraction_res, endpoint=False)
 
             kkt_fraction_max_loss_diffs = []
             kkt_fraction_norm_diffs = []
@@ -643,11 +649,19 @@ for valid_theta_err in valid_theta_errs:
             )
 
         # write to subpop description info
+        num_poisons = list(map(len, all_poisons_y))
+        best_num_poisons = min(num_poisons)
+        num_online_models = len(thetas)
+
         trn_df.loc[subpop_ind, 'Clean Overall Acc'] = train_all
         trn_df.loc[subpop_ind, 'Clean Subpop Acc'] = train_subpop_acc
         trn_df.loc[subpop_ind, 'Clean Target Acc'] = train_target_acc
         trn_df.loc[subpop_ind, 'Best Lower Bound'] = min(all_best_lower_bounds)
-        trn_df.loc[subpop_ind, 'Best Attack Poisons'] = min([len(p) for p in all_poisons_y])
+        trn_df.loc[subpop_ind, 'Best Attack Poisons'] = best_num_poisons
+        trn_df.loc[subpop_ind, 'Attempts'] = len(all_poisons_y)
+        trn_df.loc[subpop_ind, 'Best Strategy'] = 0 if best_num_poisons in num_poisons[:num_online_models] \
+                                                    else 1 if best_num_poisons in num_poisons[num_online_models:2*num_online_models] \
+                                                    else 2
 
         # indiscriminate difficulty predictors
         trn_df.loc[subpop_ind, 'Projected Constraint Size'] = max(
