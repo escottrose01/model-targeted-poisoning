@@ -21,3 +21,4 @@ six==1.14.0
 subprocess32==3.5.4
 toolz==0.10.0
 Pillow==6.2.2
+pandas==0.24.2

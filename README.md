@@ -7,7 +7,7 @@ The program requires the following key dependencies:
 ```
 pip install -r requirements.txt
 ```
-Gurobi optimizer, if needed, can be setup by obtaining a license and following instructions [here](https://www.gurobi.com/documentation/9.1/quickstart_linux/software_installation_guid.html).
+Gurobi optimizer, if needed, can be setup by obtaining a license and following instructions [here](https://www.gurobi.com/documentation/9.1/quickstart_linux/software_installation_guid.html). In this case, you will also need to install the additional Python extension gurobipy using `pip install gurobipy`.
 
 # Quick Start Guide
 Please follow the instructions below to reproduce the results shown in the paper:
