@@ -7,3 +7,4 @@ files/*
 gurobi.env
 log.txt
 logerr.txt
+gurobi.log
