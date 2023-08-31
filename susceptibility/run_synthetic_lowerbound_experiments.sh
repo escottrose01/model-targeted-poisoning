@@ -95,7 +95,8 @@ for seed in "${seeds[@]}"; do
             python susceptibility/run_lowerbound_experiments.py --dataset synthetic \
                 --model_type svm --subpop_type cluster --weight_decay $wdecay \
                 --require_acc --err_threshold $err_thresh --budget_limit 2000 \
-                --target_valid_theta_err $valid_theta_err  --subpop_id $subpop_id > log.txt 2> logerr.txt
+                --target_valid_theta_err $valid_theta_err --subpop_id $subpop_id \
+                --sv_im_models > log.txt 2> logerr.txt
             if [ $? == 0 ]; then
               echo -n " ${subpop_id}"
               cp "files/data/synthetic_trn_cluster_desc.csv" $sv_fname

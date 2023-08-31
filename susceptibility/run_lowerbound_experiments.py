@@ -271,6 +271,15 @@ for valid_theta_err in valid_theta_errs:
         fname = open('files/target_classifiers/{}/{}/{}/orig_thetas_subpop_{}_err-{}'.format(dataset_name,args.model_type, subpop_type,subpop_ind,target_valid_theta_err), 'rb')
         f = pickle.load(fname)
 
+        # Compute clean model performance
+        clean_all_margins = model.decision_function(X_train)
+        clean_subpop_margins = model.decision_function(X_train[trn_subpop_inds])
+        clean_target_margins = model.decision_function(trn_sub_x)
+
+        clean_all_loss, _ = calculate_loss(y_train * clean_all_margins)
+        clean_subpop_loss, _ = calculate_loss(y_train[trn_subpop_inds] * clean_subpop_margins)
+        clean_target_loss, _ = calculate_loss(trn_sub_y * clean_target_margins)
+
         thetas = f['thetas']
         biases = f['biases']
 
@@ -282,6 +291,7 @@ for valid_theta_err in valid_theta_errs:
         all_bias_atk = []
         all_best_lower_bounds = []
         all_heuristic_lower_bounds = [] # heuristic lower bounds are those computed from clean model
+        all_im_models = []
 
         # step 1: perform attacks using label-flip target models. Save lower bounds and attack info
         for target_theta, target_bias in zip(thetas, biases):
@@ -364,6 +374,7 @@ for valid_theta_err in valid_theta_errs:
             all_bias_atk.append(model_p_online.intercept_.item())
             all_best_lower_bounds.append(best_lower_bound)
             all_heuristic_lower_bounds.append(lower_bounds.item(0) if lower_bounds.size > 0 else best_lower_bound)
+            all_im_models.append(im_models)
 
         # step 2: perform online attack using induced models as target models. Save lower bounds and attack info.
         # since the only purpose of this step is to produce a more optimal attack, we set a more restrictive budget.
@@ -443,10 +454,11 @@ for valid_theta_err in valid_theta_errs:
             all_poisons_y.append(online_poisons_y)
             all_theta_p.append(target_theta)
             all_bias_p.append(target_bias)
-            all_theta_atk.append(model_p_online.coef_)
-            all_bias_atk.append(model_p_online.coef_)
+            all_theta_atk.append(model_p_online.coef_.reshape((-1,)))
+            all_bias_atk.append(model_p_online.intercept_.item())
             all_best_lower_bounds.append(best_lower_bound)
             all_heuristic_lower_bounds.append(lower_bounds.item(0) if lower_bounds.size > 0 else best_lower_bound)
+            all_im_models.append(im_models)
 
         assert len(all_poisons_y) == 2*len(thetas), 'failed to record all attacks so far for MTP'
 
@@ -614,8 +626,8 @@ for valid_theta_err in valid_theta_errs:
                             all_poisons_y.append(Y_poison)
                             all_theta_p.append(target_theta)
                             all_bias_p.append(target_bias)
-                            all_theta_atk.append(model_p_online.coef_)
-                            all_bias_atk.append(model_p_online.coef_)
+                            all_theta_atk.append(model_p_online.coef_.reshape((-1,)))
+                            all_bias_atk.append(model_p_online.intercept_.item())
                             break # further attacks at this epsilon will not improve estimates
                     except cvx.error.SolverError:
                         pass
@@ -623,11 +635,13 @@ for valid_theta_err in valid_theta_errs:
 
         filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
 
-        # due to numpy behavior, I have to create the arrays this way . . .
+        # due to numpy behavior, I have to create the (jagged) arrays this way . . .
         poison_x_array = np.ndarray(shape=len(all_poisons_x), dtype=object)
         poison_y_array = np.ndarray(shape=len(all_poisons_y), dtype=object)
+        im_models_array = np.ndarray(shape=len(all_im_models), dtype=object)
         poison_x_array[:] = all_poisons_x
         poison_y_array[:] = all_poisons_y
+        im_models_array[:] = all_im_models
 
         np.savez(filename,
                 # all_poisons_x=np.array(all_poisons_x, shape=len(all_poisons_x), dtype=object), # jagged arrays
@@ -640,6 +654,7 @@ for valid_theta_err in valid_theta_errs:
                 all_bias_atk=all_bias_atk,
                 all_best_lower_bounds=all_best_lower_bounds,
                 all_heuristic_lower_bounds=all_heuristic_lower_bounds,
+                im_models=im_models_array,
                 # online_acc_scores = np.array(online_acc_scores),
                 trn_sbcl = trn_sbcl,
                 tst_sbcl = tst_sbcl,
@@ -656,7 +671,13 @@ for valid_theta_err in valid_theta_errs:
         trn_df.loc[subpop_ind, 'Clean Overall Acc'] = train_all
         trn_df.loc[subpop_ind, 'Clean Subpop Acc'] = train_subpop_acc
         trn_df.loc[subpop_ind, 'Clean Target Acc'] = train_target_acc
-        trn_df.loc[subpop_ind, 'Best Lower Bound'] = min(all_best_lower_bounds)
+        trn_df.loc[subpop_ind, 'Clean Overall Loss'] = clean_all_loss
+        trn_df.loc[subpop_ind, 'Clean Subpop Loss'] = clean_subpop_loss
+        trn_df.loc[subpop_ind, 'Clean Target Loss'] = clean_target_loss
+        trn_df.loc[subpop_ind, 'Clean Overall Avg Margin'] = np.mean(clean_all_margins)
+        trn_df.loc[subpop_ind, 'Clean Subpop Avg Margin'] = np.mean(clean_subpop_margins)
+        trn_df.loc[subpop_ind, 'Clean Target Avg Margin'] = np.mean(clean_target_margins)
+        trn_df.loc[subpop_ind, 'Min Lower Bound'] = min(all_best_lower_bounds)
         trn_df.loc[subpop_ind, 'Best Attack Poisons'] = best_num_poisons
         trn_df.loc[subpop_ind, 'Attempts'] = len(all_poisons_y)
         trn_df.loc[subpop_ind, 'Best Strategy'] = 0 if best_num_poisons in num_poisons[:num_online_models] \
