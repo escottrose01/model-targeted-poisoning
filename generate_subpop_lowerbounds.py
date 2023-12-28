@@ -112,7 +112,6 @@ class CustomLinearModel(BaseEstimator, ClassifierMixin):
 
         objective = cp.Minimize(loss / X.shape[0] + self.Cr * reg)
         prob = cp.Problem(objective, constraints)
-        # prob.solve(solver=cp.OSQP, max_iter=self.max_iter)
         prob.solve(solver=cp.GUROBI, max_iter=self.max_iter)
 
         self.coef_ = w.value
@@ -152,7 +151,7 @@ def subpop_lower_bound(X, y, X_sp, Cr, x_lim_tuples):
 
     model = CustomLinearModel(Cr=Cr, max_iter=int(1e6)).fit(X, y)
     y_dec = model.decision_function(X)
-    clean_loss = hinge_loss(y, y_dec)
+    clean_loss = hinge_loss(y, y_dec) + 0.5 * Cr * np.inner(model.coef_.T, model.coef_.T)
 
     constraint_size = max(
         proj_constraint_size(model.coef_, x_lim_tuples[0]),
@@ -166,7 +165,7 @@ def subpop_lower_bound(X, y, X_sp, Cr, x_lim_tuples):
         if bound_valid:
             model.fit(X, y, force_pos=X_sp)
             y_dec = model.decision_function(X)
-            poison_loss = hinge_loss(y, y_dec)
+            poison_loss = hinge_loss(y, y_dec) + 0.5 * Cr * np.inner(model.coef_.T, model.coef_.T)
             return max(0, X.shape[0] * (poison_loss - clean_loss) / constraint_size)
         else: return 0
     except cp.error.SolverError:
@@ -175,7 +174,7 @@ def subpop_lower_bound(X, y, X_sp, Cr, x_lim_tuples):
 def subpop_lower_bound_quantile(X, y, X_sp, Cr, x_lim_tuples, r=1.0):
     clean_model = CustomLinearModel(Cr=Cr, max_iter=int(1e6)).fit(X, y)
     y_dec = clean_model.decision_function(X)
-    clean_loss = hinge_loss(y, y_dec)
+    clean_loss = hinge_loss(y, y_dec) + 0.5 * Cr * np.inner(clean_model.coef_.T, clean_model.coef_.T)
 
     constraint_size = max(
         proj_constraint_size(clean_model.coef_, x_lim_tuples[0]),
@@ -185,14 +184,14 @@ def subpop_lower_bound_quantile(X, y, X_sp, Cr, x_lim_tuples, r=1.0):
     bounds = np.zeros(X_sp.shape[0])
     model = CustomLinearModel(Cr=Cr, max_iter=int(1e6))
     bound_valid = check_boundary_in_constraint_set(clean_model.coef_, clean_model.intercept_, x_lim_tuples[0]) \
-                    or check_boundary_in_constraint_set(clean_model.coef_, clean_model.intercept_, x_lim_tuples[1])
+                        or check_boundary_in_constraint_set(clean_model.coef_, clean_model.intercept_, x_lim_tuples[1])
 
     for i, x in enumerate(X_sp):
         try:
             if bound_valid:
                 model.fit(X, y, force_pos=x)
                 y_dec = model.decision_function(X)
-                poison_loss = hinge_loss(y, y_dec)
+                poison_loss = hinge_loss(y, y_dec) + 0.5 * Cr * np.inner(model.coef_.T, model.coef_.T)
                 bounds[i] = max(0, X.shape[0] * (poison_loss - clean_loss) / constraint_size)
             else: bounds[i] = 0
         except cp.error.SolverError:

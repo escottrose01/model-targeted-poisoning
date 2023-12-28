@@ -1,14 +1,14 @@
 #!/bin/bash
 
-# this script runs the lower-bound estimate poisoning experiments against synthetic subpopulations. Intermediate subpopulations are not saved.
+# this script runs the lower-bound estimate poisoning experiments against synthetic subpopulations.
 
 # Dataset specification:
-# - datasets are generated over a 4x4 grid of (class separation, label noise) dataset parameter pairs.
+# - datasets are generated over a 13x11 grid of (class separation, label noise) dataset parameter pairs.
 # - for each parameter combination, 10 different random seeds are used (seeds are reused between parameter combinations).
 
 # Attack specification:
 # - 16 cluster subpopulations are generated for each dataset.
-# - target models are generated to achieve 100% test error on the target subpopulation, and selected by the criterion which minimizes loss on the non-subpopulation (collateral) clean data.
+# - target models are generated to achieve >= 50% test error on the target subpopulation, bucketed by error rate, and selected by the criterion which minimizes loss on the non-subpopulation (collateral) clean data.
 
 valid_theta_err=0.5               # target model subpopulation error requirement
 err_thresh=0.5                    # attack success requirement
