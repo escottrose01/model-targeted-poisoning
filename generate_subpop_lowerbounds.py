@@ -9,16 +9,23 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from sklearn.utils.multiclass import unique_labels
 from sklearn.metrics import hinge_loss
-from sklearn import linear_model, svm
 
-from utils import svm_model, logistic_model, calculate_loss, dist_to_boundary, get_subpop_inds, proj_constraint_size, check_boundary_in_constraint_set
-import pickle
+from utils import (
+    get_subpop_inds, 
+    proj_constraint_size, 
+    check_boundary_in_constraint_set,
+    min_inner_prod,
+    max_inner_prod
+)
 import argparse
 from datasets import load_dataset
 import os
+import sys
 import scipy
 import pandas as pd
 import cvxpy as cp
+
+from joblib import Parallel, delayed
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_type',default='lr',help='victim model type: SVM or rlogistic regression')
@@ -67,8 +74,10 @@ subpop_inds = selected_subpops[0]
 subpop_cts = selected_subpops[1]
 
 # for subpop descriptions
-trn_desc_fname = 'files/data/{}_trn_{}_desc.csv'.format(dataset_name, subpop_type)
-trn_df = pd.read_csv(trn_desc_fname)
+trn_desc_fname = 'files/data/lowerbounds.csv'
+num_subpops = max([np.max(v) for v in trn_all_subpops]) + 1
+print(num_subpops)
+trn_df = pd.DataFrame(index=range(num_subpops), columns=['Subpop Lower Bound', 'Subpop Quantile Lower Bound', 'Subpop Max Lower Bound'])
 
 class CustomLinearModel(BaseEstimator, ClassifierMixin):
     def __init__(self, penalty='l2', loss='hinge', Cr=1.0, max_iter=10000):
@@ -94,14 +103,12 @@ class CustomLinearModel(BaseEstimator, ClassifierMixin):
         if self.loss == 'hinge':
             loss = cp.sum_entries(cp.pos(1 - cp.mul_elemwise(y, margins)))
         else:
-            print('Error: invalid loss function passed to CustomLinearModel')
-            sys.exit(1)
+            raise ValueError('Error: invalid loss function passed to CustomLinearModel')
 
         if self.penalty == 'l2':
-            reg = 0.5 * cp.sum_squares(w)
+            reg = 0.5 * (cp.sum_squares(w) + b**2)
         else:
-            print('Error: invalid penalty function passed to CustomLinearModel')
-            sys.exit(1)
+            raise ValueError('Error: invalid penalty function passed to CustomLinearModel')
 
         if force_pos is not None:
             EPS = 1e-12
@@ -151,58 +158,58 @@ def subpop_lower_bound(X, y, X_sp, Cr, x_lim_tuples):
 
     model = CustomLinearModel(Cr=Cr, max_iter=int(1e6)).fit(X, y)
     y_dec = model.decision_function(X)
-    clean_loss = hinge_loss(y, y_dec) + 0.5 * Cr * np.inner(model.coef_.T, model.coef_.T)
+    reg = 0.5 * Cr * (np.inner(model.coef_.T, model.coef_.T) + model.intercept_ * model.intercept_)
+    clean_loss = hinge_loss(y, y_dec) + reg
 
-    constraint_size = max(
-        proj_constraint_size(model.coef_, x_lim_tuples[0]),
-        proj_constraint_size(model.coef_, x_lim_tuples[1]),
+    # previously, we used the constraint size
+    # constraint_size = max(
+    #     proj_constraint_size(model.coef_, x_lim_tuples[0]),
+    #     proj_constraint_size(model.coef_, x_lim_tuples[1]),
+    # )
+
+    # now, we compute the max loss point directly
+    min_margin = min(
+        model.intercept_ + min_inner_prod(model.coef_, x_lim_tuples[0]), # y=1
+        model.intercept_ - max_inner_prod(model.coef_, x_lim_tuples[1]), # y=-1
     )
+    sup_loss = max(0.0, 1.0 - min_margin) # note: can replace with any nondecreasing margin-based loss
+    sup_reg_loss = sup_loss + reg
 
-    bound_valid = check_boundary_in_constraint_set(model.coef_, model.intercept_, x_lim_tuples[0]) \
-                    or check_boundary_in_constraint_set(model.coef_, model.intercept_, x_lim_tuples[1])
+    # bound_valid = check_boundary_in_constraint_set(model.coef_, model.intercept_, x_lim_tuples[0]) \
+    #                 or check_boundary_in_constraint_set(model.coef_, model.intercept_, x_lim_tuples[1])
+    bound_valid = True
 
     try:
         if bound_valid:
             model.fit(X, y, force_pos=X_sp)
             y_dec = model.decision_function(X)
-            poison_loss = hinge_loss(y, y_dec) + 0.5 * Cr * np.inner(model.coef_.T, model.coef_.T)
-            return max(0, X.shape[0] * (poison_loss - clean_loss) / constraint_size)
+            reg = 0.5 * Cr * (np.inner(model.coef_.T, model.coef_.T) + model.intercept_ * model.intercept_)
+            poison_loss = hinge_loss(y, y_dec) + reg
+            # return max(0, X.shape[0] * (poison_loss - clean_loss) / (1.0 + constraint_size))
+            return max(0, X.shape[0] * (poison_loss - clean_loss) / sup_reg_loss)
         else: return 0
     except cp.error.SolverError:
         return 0
 
-def subpop_lower_bound_quantile(X, y, X_sp, Cr, x_lim_tuples, r=1.0):
-    clean_model = CustomLinearModel(Cr=Cr, max_iter=int(1e6)).fit(X, y)
-    y_dec = clean_model.decision_function(X)
-    clean_loss = hinge_loss(y, y_dec) + 0.5 * Cr * np.inner(clean_model.coef_.T, clean_model.coef_.T)
-
-    constraint_size = max(
-        proj_constraint_size(clean_model.coef_, x_lim_tuples[0]),
-        proj_constraint_size(clean_model.coef_, x_lim_tuples[1]),
-    )
-
-    bounds = np.zeros(X_sp.shape[0])
-    model = CustomLinearModel(Cr=Cr, max_iter=int(1e6))
-    bound_valid = check_boundary_in_constraint_set(clean_model.coef_, clean_model.intercept_, x_lim_tuples[0]) \
-                        or check_boundary_in_constraint_set(clean_model.coef_, clean_model.intercept_, x_lim_tuples[1])
-
-    for i, x in enumerate(X_sp):
-        try:
-            if bound_valid:
-                model.fit(X, y, force_pos=x)
-                y_dec = model.decision_function(X)
-                poison_loss = hinge_loss(y, y_dec) + 0.5 * Cr * np.inner(model.coef_.T, model.coef_.T)
-                bounds[i] = max(0, X.shape[0] * (poison_loss - clean_loss) / constraint_size)
-            else: bounds[i] = 0
-        except cp.error.SolverError:
-            bounds[i] = 0
-
-    bounds = np.sort(bounds)
-    return bounds[int(np.ceil(r * X_sp.shape[0]) - 1e-6)] # subtract off small delta to get true bound
-
 X_train_cp, y_train_cp = np.copy(X_train), np.copy(y_train)
 
-for kk, subpop_ind in enumerate(subpop_inds):
+# get score for each individual test datapoint
+indiv_scores = np.zeros(X_test.shape[0])
+subpop_scores = np.zeros(num_subpops)
+
+indiv_jobs = []
+indiv_job_ix = []
+for i in range(X_test.shape[0]):
+    if y_test[i] == 1:
+        # we ignore positive-labeled points in subpops
+        continue
+
+    X_sp = X_test[i]
+    indiv_jobs.append(delayed(subpop_lower_bound)(X_train_cp, y_train_cp, X_sp, args.weight_decay, x_lim_tuples))
+    indiv_job_ix.append(i)
+
+subpop_jobs = []
+for i, subpop_ind in enumerate(subpop_inds):
     tst_subpop_inds = np.array([np.any(v == subpop_ind) for v in tst_all_subpops])
     trn_subpop_inds = np.array([np.any(v == subpop_ind) for v in trn_all_subpops])
     # indices of points belong to subpop
@@ -214,21 +221,30 @@ for kk, subpop_ind in enumerate(subpop_inds):
     trn_sub_x, trn_sub_y = X_train_cp[trn_sbcl], y_train_cp[trn_sbcl]
     trn_nsub_x, trn_nsub_y = X_train_cp[trn_non_sbcl], y_train_cp[trn_non_sbcl]
 
-    if dataset_name in ['adult', 'loan', 'compas']:
-        assert (tst_sub_y == -1).all()
-        assert (trn_sub_y == -1).all()
-    else:
-        mode_tst = scipy.stats.mode(tst_sub_y)
-        mode_trn = scipy.stats.mode(trn_sub_y)
-        major_lab_trn = mode_trn.mode[0]
-        major_lab_tst = mode_tst.mode[0]
-        assert (tst_sub_y == major_lab_tst).all()
-        assert (trn_sub_y == major_lab_tst).all()
+    subpop_jobs.append(delayed(subpop_lower_bound)(X_train_cp, y_train_cp, tst_sub_x, args.weight_decay, x_lim_tuples))
 
-    subpop_lb = subpop_lower_bound(X_train, y_train, tst_sub_x, args.weight_decay, x_lim_tuples)
-    subpop_lb_quantile = subpop_lower_bound_quantile(X_train, y_train, tst_sub_x, args.weight_decay, x_lim_tuples, r=valid_theta_err)
+print(len(indiv_jobs), len(subpop_jobs), subpop_inds)
+for subpop_ind, score in zip(subpop_inds, Parallel(n_jobs=-1)(subpop_jobs)):
+    subpop_scores[int(subpop_ind)] = score
+
+for i, score in zip(indiv_job_ix, Parallel(n_jobs=-1)(indiv_jobs)):
+    indiv_scores[i] = score
+print("most interesting bound: ", max(indiv_scores))
+print("most interesting subpop bound: ", max(subpop_scores))
+
+# get score for each subpopulation
+for _, subpop_ind in enumerate(subpop_inds):
+    tst_subpop_inds = np.array([np.any(v == subpop_ind) for v in tst_all_subpops])
+    trn_subpop_inds = np.array([np.any(v == subpop_ind) for v in trn_all_subpops])
+    # indices of points belong to subpop
+    tst_sbcl, trn_sbcl, tst_non_sbcl, trn_non_sbcl = get_subpop_inds(dataset_name, tst_subpop_inds, trn_subpop_inds, y_test, y_train)
+
+    subpop_bounds = np.sort(indiv_scores[tst_sbcl])
+    subpop_lb_quantile = subpop_bounds[int(np.ceil(valid_theta_err * tst_sbcl[0].shape[0]) - 1e-6)] # subtract off small delta to get true bound
+    subpop_lb = subpop_scores[int(subpop_ind)]
 
     trn_df.loc[subpop_ind, 'Subpop Lower Bound'] = subpop_lb
     trn_df.loc[subpop_ind, 'Subpop Quantile Lower Bound'] = subpop_lb_quantile
+    trn_df.loc[subpop_ind, 'Subpop Max Lower Bound'] = max(subpop_bounds)
 
 trn_df.to_csv(trn_desc_fname, index=False)

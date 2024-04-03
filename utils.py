@@ -38,6 +38,14 @@ def save_img(img, img_size = 32,num_channel = 3,name = "output.png"):
 
 def random_sample(low,high):
     return (high-low) * np.random.random_sample() + low
+
+def makedir(dir):
+    try:
+        os.makedirs(dir)
+    except OSError:
+        if not os.path.isdir(dir):
+            raise
+
 def make_dirs(args):
     dataset_name = args.dataset
     subpop_type = args.subpop_type
@@ -47,27 +55,27 @@ def make_dirs(args):
         tar_gen_proc = 'orig'
     rand_seed = args.rand_seed
 
-    if not os.path.isdir('files/results/{}/{}/{}/{}/{}/{}/approx_optimal_attack'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num)):
-        os.makedirs('files/results/{}/{}/{}/{}/{}/{}/approx_optimal_attack'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num))
-    if not os.path.isdir('files/kkt_models/{}/{}/{}/{}/{}/{}/approx_optimal_attack'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num)):
-        os.makedirs('files/kkt_models/{}/{}/{}/{}/{}/{}/approx_optimal_attack'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num))
+    # if not os.path.isdir('files/results/{}/{}/{}/{}/{}/{}/approx_optimal_attack'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num)):
+    makedir('files/results/{}/{}/{}/{}/{}/{}/approx_optimal_attack'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num))
+    # if not os.path.isdir('files/kkt_models/{}/{}/{}/{}/{}/{}/approx_optimal_attack'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num)):
+    makedir('files/kkt_models/{}/{}/{}/{}/{}/{}/approx_optimal_attack'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num))
 
-    if not os.path.isdir('files/results/{}/{}/{}/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num)):
-        os.makedirs('files/results/{}/{}/{}/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num))
-    if not os.path.isdir('files/kkt_models/{}/{}/{}/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num)):
-        os.makedirs('files/kkt_models/{}/{}/{}/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num))
+    # if not os.path.isdir('files/results/{}/{}/{}/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num)):
+    makedir('files/results/{}/{}/{}/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num))
+    # if not os.path.isdir('files/kkt_models/{}/{}/{}/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num)):
+    makedir('files/kkt_models/{}/{}/{}/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num))
     # if not os.path.isdir('files/kkt_models/{}/all_models/'.format(dataset_name)):
     #     os.makedirs('files/kkt_models/{}/all_models/'.format(dataset_name))
-    if not os.path.isdir('files/online_models/{}/{}/{}/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num)):
-        os.makedirs('files/online_models/{}/{}/{}/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num))
-    if not os.path.isdir('files/target_classifiers/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type)):
-        os.makedirs('files/target_classifiers/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type))
+    # if not os.path.isdir('files/online_models/{}/{}/{}/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num)):
+    makedir('files/online_models/{}/{}/{}/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num))
+    # if not os.path.isdir('files/target_classifiers/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type)):
+    makedir('files/target_classifiers/{}/{}/{}'.format(dataset_name,args.model_type, subpop_type))
 
-    if not os.path.isdir('files/online_models/{}/{}/{}/{}/{}/{}/check_valid_thetas'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num)):
-        os.makedirs('files/online_models/{}/{}/{}/{}/{}/{}/check_valid_thetas'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num))
+    # if not os.path.isdir('files/online_models/{}/{}/{}/{}/{}/{}/check_valid_thetas'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num)):
+    makedir('files/online_models/{}/{}/{}/{}/{}/{}/check_valid_thetas'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num))
 
-    if not os.path.isdir('files/results/{}/{}/{}/{}/{}/{}/check_valid_thetas/'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num)):
-        os.makedirs('files/results/{}/{}/{}/{}/{}/{}/check_valid_thetas/'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num))
+    # if not os.path.isdir('files/results/{}/{}/{}/{}/{}/{}/check_valid_thetas/'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num)):
+    makedir('files/results/{}/{}/{}/{}/{}/{}/check_valid_thetas/'.format(dataset_name,args.model_type, subpop_type,rand_seed,tar_gen_proc,args.repeat_num))
 
 def svm_model(**kwargs):
     return svm.LinearSVC(loss='hinge', **kwargs)
@@ -124,6 +132,15 @@ def proj_constraint_size(theta, x_lim_tuple):
     x_min, x_max = x_lim_tuple
     return np.sum(np.maximum(x_min * theta, x_max * theta)) - np.sum(np.minimum(x_min * theta, x_max * theta))
 
+def min_inner_prod(theta, x_lim_tuple):
+    x_min, x_max = x_lim_tuple
+    return np.sum(np.minimum(x_min * theta, x_max * theta))
+
+def max_inner_prod(theta, x_lim_tuple):
+    x_min, x_max = x_lim_tuple
+    return np.sum(np.maximum(x_min * theta, x_max * theta))
+
+
 def check_boundary_in_constraint_set(theta, bias, x_lim_tuple):
     # can solve in closed form, but for generality use cvx
     x_min, x_max = x_lim_tuple
@@ -146,6 +163,8 @@ def proj_separability(theta, X, y):
     proj_std = np.sqrt(proj_var)
 
     return proj_sep, proj_std
+
+
 
 
 def lr_search_max_loss_pt(d,curr_model,target_model,y,x_lim_tuple,args,lr=1e-5,num_steps=3000,trials=10,optimizer = 'adam'):

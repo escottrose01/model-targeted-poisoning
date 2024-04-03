@@ -2,6 +2,14 @@ import os, sys
 p = os.path.abspath('.')
 sys.path.insert(1, p)
 
+# This is needed so parallelism does not explode
+parallel_procs = "2"
+os.environ["OMP_NUM_THREADS"] = parallel_procs
+os.environ["MKL_NUM_THREADS"] = parallel_procs
+os.environ["OPENBLAS_NUM_THREADS"] = parallel_procs
+os.environ["VECLIB_MAXIMUM_THREADS"] = parallel_procs
+os.environ["NUMEXPR_NUM_THREADS"] = parallel_procs
+
 from sklearn.datasets import make_classification
 
 import numpy as np
@@ -26,6 +34,7 @@ from sklearn.externals import joblib
 
 # import adaptive attack related functions
 from utils import *
+from influence_attack import influence_attack
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_type',default='lr',help='victim model type: SVM or logistic regression')
@@ -205,7 +214,8 @@ model.fit(X_train, y_train)
 # report performance of clean model
 clean_acc = model.score(X_test,y_test)
 margins = y_train*(X_train.dot(model.coef_.reshape(-1)) + model.intercept_)
-clean_total_loss = np.sum(np.maximum(1-margins, 0))
+clean_loss, _ = calculate_loss(margins)
+clean_loss += (args.weight_decay/2) * (np.linalg.norm(model.coef_)**2 + model.intercept_**2)
 
 params = np.reshape(model.coef_, -1)
 bias = model.intercept_[0]
@@ -219,13 +229,6 @@ for valid_theta_err in valid_theta_errs:
         target_valid_theta_err = valid_theta_err
     else:
         target_valid_theta_err = args.target_valid_theta_err
-
-    real_lower_bound_file = open('files/results/{}/{}/{}/{}/{}/{}/real_lower_bound_and_attacks_tol-{}_err-{}.csv'.format(dataset_name,args.model_type, subpop_type, args.rand_seed,target_gen_proc,args.repeat_num,args.incre_tol_par,valid_theta_err), 'w')
-    real_lower_bound_writer = csv.writer(real_lower_bound_file, delimiter=str(' '))
-
-    # for subpop descriptions
-    trn_desc_fname = 'files/data/{}_trn_{}_desc.csv'.format(dataset_name, subpop_type)
-    trn_df = pd.read_csv(trn_desc_fname)
 
     # for kk in range(len(subpop_inds)):
     for kk, subpop_ind in enumerate(subpop_inds):
@@ -283,15 +286,7 @@ for valid_theta_err in valid_theta_errs:
         thetas = f['thetas']
         biases = f['biases']
 
-        all_poisons_x = []
-        all_poisons_y = []
-        all_theta_p = []
-        all_bias_p = []
-        all_theta_atk = []
-        all_bias_atk = []
-        all_best_lower_bounds = []
-        all_heuristic_lower_bounds = [] # heuristic lower bounds are those computed from clean model
-        all_im_models = []
+        attack_log = []
 
         # step 1: perform attacks using label-flip target models. Save lower bounds and attack info
         for target_theta, target_bias in zip(thetas, biases):
@@ -366,20 +361,25 @@ for valid_theta_err in valid_theta_errs:
                 max_iter = 32000)
             model_p_online.fit(online_full_x, online_full_y)
 
-            all_poisons_x.append(online_poisons_x)
-            all_poisons_y.append(online_poisons_y)
-            all_theta_p.append(target_theta)
-            all_bias_p.append(target_bias)
-            all_theta_atk.append(model_p_online.coef_.reshape((-1,)))
-            all_bias_atk.append(model_p_online.intercept_.item())
-            all_best_lower_bounds.append(best_lower_bound)
-            all_heuristic_lower_bounds.append(lower_bounds.item(0) if lower_bounds.size > 0 else best_lower_bound)
-            all_im_models.append(im_models)
+            attack_log.append(dict(
+                X_psn=online_poisons_x,
+                y_psn=online_poisons_y,
+                theta_p=target_theta,
+                bias_p=target_bias,
+                theta_atk=model_p_online.coef_.reshape((-1,)),
+                bias_atk=model_p_online.intercept_.item(),
+                best_lower_bound=best_lower_bound,
+                im_models=im_models,
+                attack_tag='mtp-1'
+            ))
 
         # step 2: perform online attack using induced models as target models. Save lower bounds and attack info.
         # since the only purpose of this step is to produce a more optimal attack, we set a more restrictive budget.
-        args.budget_limit = min(map(len, all_poisons_y))
-        for target_theta, target_bias in zip(all_theta_atk, all_bias_atk):
+        args.budget_limit = min([len(v['y_psn']) for v in attack_log])
+        for atk in attack_log[:]:
+            target_theta = atk['theta_atk']
+            target_bias = atk['bias_atk']
+
             poisons_all = {}
             poisons_all["X_poison"] = X_train
             poisons_all["Y_poison"] = y_train
@@ -450,22 +450,27 @@ for valid_theta_err in valid_theta_errs:
                 max_iter = 32000)
             model_p_online.fit(online_full_x, online_full_y)
 
-            all_poisons_x.append(online_poisons_x)
-            all_poisons_y.append(online_poisons_y)
-            all_theta_p.append(target_theta)
-            all_bias_p.append(target_bias)
-            all_theta_atk.append(model_p_online.coef_.reshape((-1,)))
-            all_bias_atk.append(model_p_online.intercept_.item())
-            all_best_lower_bounds.append(best_lower_bound)
-            all_heuristic_lower_bounds.append(lower_bounds.item(0) if lower_bounds.size > 0 else best_lower_bound)
-            all_im_models.append(im_models)
+            attack_log.append(dict(
+                X_psn=online_poisons_x,
+                y_psn=online_poisons_y,
+                theta_p=target_theta,
+                bias_p=target_bias,
+                theta_atk=model_p_online.coef_.reshape((-1,)),
+                bias_atk=model_p_online.intercept_.item(),
+                best_lower_bound=best_lower_bound,
+                im_models=im_models,
+                attack_tag='mtp-2'
+            ))
 
-        assert len(all_poisons_y) == 2*len(thetas), 'failed to record all attacks so far for MTP'
+        assert len(attack_log) == 2*len(thetas), 'failed to record all attacks so far for MTP'
 
         # step 3: perform kkt attacks using label-flip target models. Save attack info (but do not generate lower bounds)
-        # note that zip() truncates to smallest iterable, so can just pass all_best_lower_bounds and num_online_poisons
-        num_online_poisons = list(map(len, all_poisons_y))
-        for target_theta, target_bias, lower_bound, best_atk_poisons in zip(all_theta_p, all_bias_p, all_best_lower_bounds, num_online_poisons):
+        for atk in attack_log[:]:
+            target_theta = atk['theta_p']
+            target_bias = atk['bias_p']
+            lower_bound = atk['best_lower_bound']
+            best_atk_poisons = len(atk['y_psn'])
+
             # attack parameters
             percentile = 90
             loss_percentile = 90
@@ -610,91 +615,148 @@ for valid_theta_err in valid_theta_errs:
 
                         if tst_target_acc <= valid_theta_err:
                             # only add these data if met attack objective
-                            # retrain the model based poisons from online learning
-                            C = 1.0 / (online_full_x.shape[0] * args.weight_decay)
-                            fit_intercept = True
-                            model_p_online = ScikitModel(
-                                C=C,
-                                tol=1e-8,
-                                fit_intercept=fit_intercept,
-                                random_state=args.rand_seed,
-                                verbose=False,
-                                max_iter = 32000)
-                            model_p_online.fit(online_full_x, online_full_y)
-
-                            all_poisons_x.append(X_poison)
-                            all_poisons_y.append(Y_poison)
-                            all_theta_p.append(target_theta)
-                            all_bias_p.append(target_bias)
-                            all_theta_atk.append(model_p_online.coef_.reshape((-1,)))
-                            all_bias_atk.append(model_p_online.intercept_.item())
+                            attack_log.append(dict(
+                                X_psn=X_poison,
+                                y_psn=Y_poison,
+                                theta_p=target_theta,
+                                bias_p=target_bias,
+                                theta_atk=model_p.coef_.reshape((-1,)),
+                                bias_atk=model_p.intercept_.item(),
+                                attack_tag='kkt'
+                            ))
+                            # all_poisons_x.append(X_poison)
+                            # all_poisons_y.append(Y_poison)
+                            # all_theta_p.append(target_theta)
+                            # all_bias_p.append(target_bias)
+                            # all_theta_atk.append(model_p_online.coef_.reshape((-1,)))
+                            # all_bias_atk.append(model_p_online.intercept_.item())
+                            # attack_tags.append('kkt')
                             break # further attacks at this epsilon will not improve estimates
                     except cvx.error.SolverError:
                         pass
                         # Gurobi can fail to find points, in this case ignore
 
+        # step 4: perform influence attack. Binary search on the number of points needed.
+        lo, hi = 0, max([len(v['y_psn']) for v in attack_log])
+        num_steps = 200
+        X_best, y_best, history_best = None, None, None
+        while hi - lo > 1:
+            # launch attack
+            mid = (lo + hi) // 2
+            X_psn, y_psn, history = influence_attack(
+                X_train,
+                y_train,
+                X_test,
+                y_test,
+                x_lim_tuples,
+                subpop_data,
+                args,
+                ScikitModel=ScikitModel,
+                num_poisons=mid,
+                num_steps=num_steps,
+                lr=5e-2
+            )
+
+            X_cur = np.concatenate([X_train, X_psn], axis=0)
+            y_cur = np.concatenate([y_train, y_psn], axis=0)
+            C = 1.0 / (X_cur.shape[0] * args.weight_decay)
+            score = ScikitModel(
+                C=C,
+                tol=1e-8,
+                fit_intercept=True,
+                random_state=args.rand_seed,
+                verbose=False,
+                max_iter=32000
+            ).fit(X_cur, y_cur).score(tst_sub_x, tst_sub_y)
+
+            if score <= 0.5:
+                hi = mid
+                X_best, y_best, history_best = X_psn, y_psn, history
+            else:
+                lo = mid
+
+        X_psn, y_psn, history = X_best, y_best, history_best
+        if X_psn is not None:
+            # retrain the model based poisons from influence attack
+            X_full = np.concatenate((X_train, X_psn), axis=0)
+            y_full = np.concatenate((y_train, y_psn), axis=0)
+            C = 1.0 / (X_full.shape[0] * args.weight_decay)
+            fit_intercept = True
+            model_p_online = ScikitModel(
+                C=C,
+                tol=1e-8,
+                fit_intercept=fit_intercept,
+                random_state=args.rand_seed,
+                verbose=False,
+                max_iter = 32000)
+            model_p_online.fit(X_full, y_full)
+
+        # save results, if attack was successful
+        if X_psn is not None:
+            attack_log.append(dict(
+                X_psn=X_psn,
+                y_psn=y_psn,
+                theta_atk=model_p_online.coef_.reshape((-1,)),
+                bias_atk=model_p_online.intercept_.item(),
+                attack_tag='influence'
+            ))
+            
+
         filename = 'files/online_models/{}/{}/{}/{}/{}/{}/subpop-{}_online_for_real_data_tol-{}_err-{}.npz'.format(dataset_name,args.model_type, subpop_type,args.rand_seed,target_gen_proc,args.repeat_num,subpop_ind,args.incre_tol_par,valid_theta_err)
 
-        # due to numpy behavior, I have to create the (jagged) arrays this way . . .
-        poison_x_array = np.ndarray(shape=len(all_poisons_x), dtype=object)
-        poison_y_array = np.ndarray(shape=len(all_poisons_y), dtype=object)
-        im_models_array = np.ndarray(shape=len(all_im_models), dtype=object)
-        poison_x_array[:] = all_poisons_x
-        poison_y_array[:] = all_poisons_y
-        im_models_array[:] = all_im_models
+        # compute the best attack
+        best_ix = np.argmin([len(v['y_psn']) for v in attack_log])
+        proj_constraint_size = max(
+            proj_constraint_size(model.coef_, x_lim_tuples[0]),
+            proj_constraint_size(model.coef_, x_lim_tuples[1])
+        )
+        proj_sep, proj_std = proj_separability(model.coef_, X_train, y_train)
+        lower_bounds = [v['best_lower_bound'] for v in attack_log if 'best_lower_bound' in v.keys()]
+
+        # compute the best loss difference
+        min_loss_diff = float('inf')
+        for atk in attack_log:
+            theta_atk, bias_atk = atk['theta_atk'], atk['bias_atk']
+            margins = y_train*(X_train.dot(theta_atk) + bias_atk)
+            train_loss, _ = calculate_loss(margins)
+            train_loss += (args.weight_decay / 2.0) * (np.linalg.norm(theta_atk)**2 + bias_atk**2)
+            atk["loss_diff"] = train_loss - clean_loss
+
+            if 'theta_p' in atk.keys():
+                theta_p, bias_p = atk['theta_p'], atk['bias_p']
+                margins = y_train*(X_train.dot(theta_p) + bias_p)
+                train_loss, _ = calculate_loss(margins)
+                train_loss += (args.weight_decay / 2.0) * (np.linalg.norm(theta_p)**2 + bias_p**2)
+                atk["loss_diff"] = min(train_loss - clean_loss, atk["loss_diff"])
+            
+            min_loss_dif = min(min_loss_dif, atk["loss_diff"])
+
+        attack_stats = {
+            'Clean Overall Acc': train_all,
+            'Clean Subpop Acc': train_subpop_acc,
+            'Clean Target Acc': train_target_acc,
+            'Clean Overall Loss': clean_all_loss,
+            'Clean Subpop Loss': clean_subpop_loss,
+            'Clean Target Loss': clean_target_loss,
+            'Clean Overall Avg Margin': np.mean(clean_all_margins),
+            'Clean Subpop Avg Margin': np.mean(clean_subpop_margins),
+            'Clean Target Avg Margin': np.mean(clean_target_margins),
+            'Min Lower Bound': min(lower_bounds),
+            'Best Attack Poisons': min([len(v['y_psn']) for v in attack_log]),
+            'Attempts': len(attack_log),
+            'Best Strategy': attack_log[best_ix]['attack_tag'],
+            'Projected Constraint Size': proj_constraint_size,
+            'Projected Separability': proj_sep,
+            'Projected Std': proj_std,
+            'Min Loss Diff': min_loss_diff
+        }
 
         np.savez(filename,
-                # all_poisons_x=np.array(all_poisons_x, shape=len(all_poisons_x), dtype=object), # jagged arrays
-                # all_poisons_y=np.array(all_poisons_y, shape=len(all_poisons_y), dtype=object),
-                all_poisons_x=poison_x_array,
-                all_poisons_y=poison_y_array,
-                all_theta_p=all_theta_p,
-                all_bias_p=all_bias_p,
-                all_theta_atk=all_theta_atk,
-                all_bias_atk=all_bias_atk,
-                all_best_lower_bounds=all_best_lower_bounds,
-                all_heuristic_lower_bounds=all_heuristic_lower_bounds,
-                im_models=im_models_array,
-                # online_acc_scores = np.array(online_acc_scores),
+                attack_log=attack_log,
+                attack_stats=attack_stats,
                 trn_sbcl = trn_sbcl,
                 tst_sbcl = tst_sbcl,
                 trn_non_sbcl = trn_non_sbcl,
                 tst_non_sbcl = tst_non_sbcl,
                 allow_pickle=True
             )
-
-        # write to subpop description info
-        num_poisons = list(map(len, all_poisons_y))
-        best_num_poisons = min(num_poisons)
-        num_online_models = len(thetas)
-
-        trn_df.loc[subpop_ind, 'Clean Overall Acc'] = train_all
-        trn_df.loc[subpop_ind, 'Clean Subpop Acc'] = train_subpop_acc
-        trn_df.loc[subpop_ind, 'Clean Target Acc'] = train_target_acc
-        trn_df.loc[subpop_ind, 'Clean Overall Loss'] = clean_all_loss
-        trn_df.loc[subpop_ind, 'Clean Subpop Loss'] = clean_subpop_loss
-        trn_df.loc[subpop_ind, 'Clean Target Loss'] = clean_target_loss
-        trn_df.loc[subpop_ind, 'Clean Overall Avg Margin'] = np.mean(clean_all_margins)
-        trn_df.loc[subpop_ind, 'Clean Subpop Avg Margin'] = np.mean(clean_subpop_margins)
-        trn_df.loc[subpop_ind, 'Clean Target Avg Margin'] = np.mean(clean_target_margins)
-        trn_df.loc[subpop_ind, 'Min Lower Bound'] = min(all_best_lower_bounds)
-        trn_df.loc[subpop_ind, 'Best Attack Poisons'] = best_num_poisons
-        trn_df.loc[subpop_ind, 'Attempts'] = len(all_poisons_y)
-        trn_df.loc[subpop_ind, 'Best Strategy'] = 0 if best_num_poisons in num_poisons[:num_online_models] \
-                                                    else 1 if best_num_poisons in num_poisons[num_online_models:2*num_online_models] \
-                                                    else 2
-
-        # indiscriminate difficulty predictors
-        trn_df.loc[subpop_ind, 'Projected Constraint Size'] = max(
-            proj_constraint_size(model.coef_, x_lim_tuples[0]),
-            proj_constraint_size(model.coef_, x_lim_tuples[1])
-        )
-        trn_df.loc[subpop_ind, 'Projected Separability'], trn_df.loc[subpop_ind, 'Projected Std'] = proj_separability(model.coef_, X_train, y_train)
-
-        if ((kk + 1) % flush_freq == 0):
-            trn_df.to_csv(trn_desc_fname, index=False)
-
-    # close all files
-    real_lower_bound_file.flush()
-    real_lower_bound_file.close()
-    trn_df.to_csv(trn_desc_fname, index=False)
